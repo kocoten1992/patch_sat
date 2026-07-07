@@ -1,0 +1,8 @@
+id: remove_stripe_client
+language: Go
+
+rule:
+  pattern: |
+    mud.Provide[Client](ball, NewStripeClient)
+
+fix: ""

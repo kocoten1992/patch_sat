@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <satellite_root_dir>"
+    exit 1
+fi
+
+DIR="$1"
+
+apply_rule() {
+    local rule="$1"
+    local file="$2"
+    local expected="$3"
+
+    local count
+    count=$(
+        ast-grep scan \
+            --rule "$rule" \
+            --json=compact \
+            "$file" |
+        jq length
+    )
+
+    if [[ "$count" -ne "$expected" ]]; then
+        echo "ERROR: Expected $expected match(es) for $rule in $file, found $count." >&2
+        exit 1
+    fi
+
+    ast-grep scan \
+        --rule "$rule" \
+        --update-all \
+        "$file"
+}
+
+apply_rule patches/1783440418_remove_stripe_client.yml "$DIR/satellite/payments/stripe/mud.go" 1
+apply_rule patches/1783432229_optional_stripe.yml "$DIR/satellite/mud.go" 1

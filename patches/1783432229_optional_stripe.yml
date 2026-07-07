@@ -1,0 +1,22 @@
+id: optional_stripe
+language: Go
+
+rule:
+  pattern: |
+    stripe.Module(ball)
+
+fix: |
+  mud.Provide[stripe.Client](ball, func(log *zap.Logger, pc paymentsconfig.Config, stripeDB stripe.DB, usersDB console.Users) (stripe.Client, error) {
+      switch pc.Provider {
+      case "":
+          return stripe.NewStripeMock(stripeDB.Customers(), usersDB), nil
+      case "mock":
+          return pc.MockProvider, nil
+      case "stripecoinpayments":
+          return stripe.NewStripeClient(log, pc.StripeCoinPayments), nil
+      default:
+          return nil, errs.New("invalid stripe coin payments provider %q", pc.Provider)
+      }
+  })
+
+  stripe.Module(ball)
