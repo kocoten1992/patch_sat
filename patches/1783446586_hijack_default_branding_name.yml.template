@@ -1,0 +1,7 @@
+id: hijack_default_branding_name
+language: TypeScript
+
+rule:
+  pattern: export const defaultBrandingName = $OLD
+
+fix: export const defaultBrandingName = ${BRANDING_NAME}

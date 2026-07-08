@@ -3,8 +3,16 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <satellite_root_dir>"
+    echo "Usage: $0 <satellite_root_dir>, exit 1"
     exit 1
+fi
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+FILE="$SCRIPT_DIR/config.yaml"
+
+if [[ ! -f "$FILE" ]]; then
+    echo "Error: File '$FILE' does not exist. exit 2"
+    exit 2
 fi
 
 DIR="$1"
@@ -36,3 +44,11 @@ apply_rule() {
 
 apply_rule patches/1783440418_remove_stripe_client.yml "$DIR/satellite/payments/stripe/mud.go" 1
 apply_rule patches/1783432229_optional_stripe.yml "$DIR/satellite/mud.go" 1
+
+BRANDING_NAME=$(yq '.["console.single-white-label"].name' config.yaml)
+
+env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
+    < patches/1783446586_hijack_default_branding_name.yml.template \
+    > /tmp/branding-rule.yml
+
+apply_rule /tmp/branding-rule.yml "$DIR" 2
