@@ -1,0 +1,29 @@
+id: cockroach-use-skip-locked
+language: Go
+
+rule:
+  pattern: |
+    case dbutil.Cockroach:
+      $$$BEFORE
+      getQuery = `
+      WITH next_row AS (
+          $$$SELECT
+          FOR UPDATE
+          LIMIT 1
+      )
+      $$$REST
+      `
+      $$$AFTER
+
+fix: |
+  case dbutil.Cockroach:
+    $$$BEFORE
+    getQuery = `
+    WITH next_row AS (
+        $$$SELECT
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+    )
+    $$$REST
+    `
+    $$$AFTER
