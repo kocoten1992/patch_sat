@@ -1,29 +1,19 @@
-id: cockroach-use-skip-locked
+id: crdb-use-skip-locked
 language: Go
 
 rule:
-  pattern: |
-    case dbutil.Cockroach:
-      $$$BEFORE
-      getQuery = `
-      WITH next_row AS (
-          $$$SELECT
-          FOR UPDATE
-          LIMIT 1
-      )
-      $$$REST
-      `
-      $$$AFTER
+  pattern: getQuery = $SQL
+
+constraints:
+  SQL:
+    regex: 'DELETE FROM verification_audits v\s+WHERE v\.inserted_at = \(SELECT inserted_at FROM next_row\)'
+
+transform:
+  NEW_SQL:
+    replace:
+      source: $SQL
+      replace: 'FOR UPDATE'
+      by: 'FOR UPDATE SKIP LOCKED'
 
 fix: |
-  case dbutil.Cockroach:
-    $$$BEFORE
-    getQuery = `
-    WITH next_row AS (
-        $$$SELECT
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1
-    )
-    $$$REST
-    `
-    $$$AFTER
+  getQuery = $NEW_SQL
