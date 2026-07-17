@@ -46,14 +46,14 @@ apply_rule() {
 git revert --no-edit 40bb0c87b84fa05013136699fd4043af5f2283d1 # ci: remove CockroachDB and Spanner integration tests
 
 # patch
-apply_rule patches/1783440418_remove_stripe_client.yml "$DIR/satellite/payments/stripe/mud.go" 1
-apply_rule patches/1783432229_optional_stripe.yml "$DIR/satellite/mud.go" 1
+apply_rule "$SCRIPT_DIR/patches/1783440418_remove_stripe_client.yml" "$DIR/satellite/payments/stripe/mud.go" 1
+apply_rule "$SCRIPT_DIR/patches/1783432229_optional_stripe.yml" "$DIR/satellite/mud.go" 1
 
-BRANDING_NAME=$(yq '.["console.single-white-label"].name' config.yaml)
+BRANDING_NAME=$(yq '.["console.single-white-label"].name' "$SCRIPT_DIR/config.yaml")
 
 env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
-    < patches/1783446586_hijack_default_branding_name.yml.template \
+    < "$SCRIPT_DIR/patches/1783446586_hijack_default_branding_name.yml.template" \
     > /tmp/branding-rule.yml
 
 apply_rule /tmp/branding-rule.yml "$DIR" 2
-apply_rule patches/1784299063_crdb_use_skip_locked.yml "$DIR/satellite/satellitedb/verifyqueue.go" 1
+apply_rule "$SCRIPT_DIR/patches/1784299063_crdb_use_skip_locked.yml" "$DIR/satellite/satellitedb/verifyqueue.go" 1
