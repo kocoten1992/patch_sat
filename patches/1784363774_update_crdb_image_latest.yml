@@ -1,0 +1,6 @@
+id: update-crdb-image-latest
+language: yaml
+rule:
+  pattern: "cockroachdb/cockroach:v23.2.2"
+
+fix: "cockroachdb/cockroach:latest"

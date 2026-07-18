@@ -57,3 +57,4 @@ env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
 
 apply_rule /tmp/branding-rule.yml "$DIR" 2
 apply_rule "$SCRIPT_DIR/patches/1784299063_crdb_use_skip_locked.yml" "$DIR/satellite/satellitedb/verifyqueue.go" 1
+apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/testsuite" 1
