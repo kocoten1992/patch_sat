@@ -1,0 +1,7 @@
+id: merge-bucket-bandwidth-rollups-pk
+language: go
+rule:
+  pattern: tx.ExecContext(ctx, $SQL)
+  regex: 'ALTER TABLE bucket_bandwidth_rollups DROP CONSTRAINT bucket_bandwidth_rollups_pk'
+fix: |-
+  tx.ExecContext(ctx, `ALTER TABLE bucket_bandwidth_rollups DROP CONSTRAINT bucket_bandwidth_rollups_pk, ADD CONSTRAINT bucket_bandwidth_rollups_pk PRIMARY KEY (project_id, bucket_name, interval_start, action);`)

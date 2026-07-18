@@ -1,0 +1,7 @@
+id: merge-bucket-bandwidth-metainfos-pk
+language: go
+rule:
+  pattern: tx.ExecContext(ctx, $SQL)
+  regex: 'ALTER TABLE bucket_metainfos DROP CONSTRAINT bucket_metainfos_pkey'
+fix: |-
+  tx.ExecContext(ctx, `ALTER TABLE bucket_metainfos DROP CONSTRAINT bucket_metainfos_pkey, ADD CONSTRAINT bucket_metainfos_pkey PRIMARY KEY (project_id, name);`)
