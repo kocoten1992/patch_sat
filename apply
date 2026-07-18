@@ -43,7 +43,7 @@ apply_rule() {
 }
 
 # git revert
-git revert --no-edit 40bb0c87b84fa05013136699fd4043af5f2283d1 # ci: remove CockroachDB and Spanner integration tests
+git -C $DIR revert --no-edit 40bb0c87b84fa05013136699fd4043af5f2283d1 # ci: remove CockroachDB and Spanner integration tests
 
 # patch
 apply_rule "$SCRIPT_DIR/patches/1783440418_remove_stripe_client.yml" "$DIR/satellite/payments/stripe/mud.go" 1
