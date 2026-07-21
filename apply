@@ -42,6 +42,45 @@ apply_rule() {
         "$file"
 }
 
+apply_comby_rule() {
+    local rule_dir="$1"
+    local file="$2"
+    local expected="$3"
+
+    local match rewrite matcher count
+    match="$(cat "$rule_dir/match")"
+    rewrite="$(cat "$rule_dir/rewrite")"
+    matcher="$(cat "$rule_dir/matcher" 2>/dev/null || echo ".generic")"
+
+    count=$(
+        docker run --rm \
+            -v "$DIR:$DIR" \
+            -w "$DIR" \
+            comby/comby \
+            "$match" \
+            "" \
+            -matcher "$matcher" \
+            -json-lines \
+            "$file" |
+        jq -s length
+    )
+
+    if [[ "$count" -ne "$expected" ]]; then
+        echo "ERROR: Expected $expected match(es) for $rule_dir in $file, found $count." >&2
+        exit 1
+    fi
+
+    docker run --rm \
+        -v "$DIR:$DIR" \
+        -w "$DIR" \
+        comby/comby \
+        "$match" \
+        "$rewrite" \
+        -matcher "$matcher" \
+        -in-place \
+        "$file"
+}
+
 # git revert
 git -C $DIR revert --no-edit 40bb0c87b84fa05013136699fd4043af5f2283d1 # ci: remove CockroachDB and Spanner integration tests
 
@@ -60,3 +99,4 @@ apply_rule "$SCRIPT_DIR/patches/1784299063_crdb_use_skip_locked.yml" "$DIR/satel
 apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/testsuite" 1
 apply_rule "$SCRIPT_DIR/patches/1784396915_merge_bucket_bandwidth_rollups_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
 apply_rule "$SCRIPT_DIR/patches/1784399045_merge_bucket_bandwidth_metainfos_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1784665055_disable_stripe_frontend_setup" "$DIR/web/satellite/src/App.vue" 1

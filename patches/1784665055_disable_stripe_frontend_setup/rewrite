@@ -1,0 +1,6 @@
+// PATCH: Stripe is not used on this deployment; never trigger customer/account
+// generation, regardless of the billingEnabled config flag.
+const stripeDisabled = true;
+if (!stripeDisabled && configStore.billingEnabled && !user.isMember) {
+    :[body]
+}
