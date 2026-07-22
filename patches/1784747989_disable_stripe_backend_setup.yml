@@ -1,0 +1,13 @@
+id: disable-stripe-backend-setup
+language: go
+
+rule:
+  pattern: |
+    func ($RECV) Setup($$$PARAMS) ($$$RETURNS) {
+      $$$BODY
+    }
+
+fix: |
+  func ($RECV) Setup($$$PARAMS) ($$$RETURNS) {
+      return payments.FreeTierCoupon, nil
+  }
