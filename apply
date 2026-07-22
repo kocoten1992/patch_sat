@@ -84,6 +84,3 @@ apply_rule "$SCRIPT_DIR/patches/1784299063_crdb_use_skip_locked.yml" "$DIR/satel
 apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/testsuite" 1
 apply_rule "$SCRIPT_DIR/patches/1784396915_merge_bucket_bandwidth_rollups_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
 apply_rule "$SCRIPT_DIR/patches/1784399045_merge_bucket_bandwidth_metainfos_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
-apply_comby_rule "$SCRIPT_DIR/patches/1784665055_disable_stripe_frontend_setup" "$DIR/web/satellite/src/App.vue" 1
-apply_rule "$SCRIPT_DIR/patches/1784747989_disable_stripe_backend_setup.yml" "$DIR/satellite/payments" 1
-apply_rule "$SCRIPT_DIR/patches/1784748115_patch_ensure_user_has_stripe_customer.yml" "$DIR/satellite/payments" 1

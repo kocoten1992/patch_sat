@@ -1,3 +1,0 @@
-if (configStore.billingEnabled && !user.isMember) {
-:[body]
-}
