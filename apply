@@ -23,13 +23,8 @@ apply_rule() {
     local expected="$3"
 
     local count
-    count=$(
-        ast-grep scan \
-            --rule "$rule" \
-            --json=compact \
-            "$file" |
-        jq length
-    )
+
+    count=$(ast-grep scan --rule "$rule" --json=compact "$file" | jq length)
 
     if [[ "$count" -ne "$expected" ]]; then
         echo "ERROR: Expected $expected match(es) for $rule in $file, found $count." >&2
@@ -52,33 +47,14 @@ apply_comby_rule() {
     rewrite="$(cat "$rule_dir/rewrite")"
     matcher="$(cat "$rule_dir/matcher" 2>/dev/null || echo ".generic")"
 
-    count=$(
-        docker run --rm \
-            -v "$DIR:$DIR" \
-            -w "$DIR" \
-            comby/comby \
-            "$match" \
-            "" \
-            -matcher "$matcher" \
-            -json-lines \
-            "$file" |
-        jq -s length
-    )
+    count=$(comby "$match" "" -matcher "$matcher" -json-lines "$file" | jq -s length)
 
     if [[ "$count" -ne "$expected" ]]; then
         echo "ERROR: Expected $expected match(es) for $rule_dir in $file, found $count." >&2
         exit 1
     fi
 
-    docker run --rm \
-        -v "$DIR:$DIR" \
-        -w "$DIR" \
-        comby/comby \
-        "$match" \
-        "$rewrite" \
-        -matcher "$matcher" \
-        -in-place \
-        "$file"
+    comby "$match" "$rewrite" -matcher "$matcher" -in-place "$file"
 }
 
 # git revert
