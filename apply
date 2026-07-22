@@ -73,7 +73,7 @@ done
 apply_rule "$SCRIPT_DIR/patches/1783440418_remove_stripe_client.yml" "$DIR/satellite/payments/stripe/mud.go" 1
 apply_rule "$SCRIPT_DIR/patches/1783432229_optional_stripe.yml" "$DIR/satellite/mud.go" 1
 
-BRANDING_NAME=$(yq '.["console.single-white-label"].name' "$SCRIPT_DIR/config.yaml")
+BRANDING_NAME=$(yq '."console"."single-white-label"."name"' "$SCRIPT_DIR/config.yaml")
 
 env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
     < "$SCRIPT_DIR/patches/1783446586_hijack_default_branding_name.yml.template" \
