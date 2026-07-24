@@ -1,0 +1,1 @@
+<v-col> :[a] Stay logged in for 7 days. :[b] </v-col> <v-col v-if="ssoUnavailable">

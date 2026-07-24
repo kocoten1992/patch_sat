@@ -84,3 +84,4 @@ apply_rule "$SCRIPT_DIR/patches/1784299063_crdb_use_skip_locked.yml" "$DIR/satel
 apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/testsuite" 1
 apply_rule "$SCRIPT_DIR/patches/1784396915_merge_bucket_bandwidth_rollups_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
 apply_rule "$SCRIPT_DIR/patches/1784399045_merge_bucket_bandwidth_metainfos_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1784884786_hide_remember_me" "$DIR/web/satellite/src/views/Login.vue" 1
