@@ -1,0 +1,23 @@
+id: add-forever-duration
+language: TypeScript
+
+rule:
+  all:
+    - pattern:
+        context: "class C { static YEAR_1 = new Duration($NS); }"
+        selector: public_field_definition
+    # self-disabling: skip if FOREVER is already declared on the class
+    - not:
+        inside:
+          kind: class_body
+          has:
+            stopBy: neighbor
+            pattern:
+              context: "class C { static FOREVER = $ANY; }"
+              selector: public_field_definition
+
+# note: public_field_definition excludes the trailing `;`, so the fix ends
+# without one and reuses the original semicolon.
+fix: |-
+  static YEAR_1 = new Duration($NS);
+  static FOREVER = new Duration(Duration.YEAR_1.nanoseconds * 100)

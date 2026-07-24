@@ -85,3 +85,6 @@ apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/t
 apply_rule "$SCRIPT_DIR/patches/1784396915_merge_bucket_bandwidth_rollups_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
 apply_rule "$SCRIPT_DIR/patches/1784399045_merge_bucket_bandwidth_metainfos_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
 apply_comby_rule "$SCRIPT_DIR/patches/1784884786_hide_remember_me" "$DIR/web/satellite/src/views/Login.vue" 1
+apply_rule "$SCRIPT_DIR/patches/1784889285_add_forever_duration.yml" "$DIR/web/satellite/src/utils/time.ts" 1
+apply_rule "$SCRIPT_DIR/patches/1784889338_add_forever_short_string.yml" "$DIR/web/satellite/src/utils/time.ts" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1784889388_session_timeout_long_options" "$DIR/web/satellite/src/components/dialogs/SetSessionTimeoutDialog.vue" 1

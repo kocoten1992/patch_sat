@@ -1,0 +1,19 @@
+id: forever-short-string
+language: TypeScript
+
+rule:
+  all:
+    - pattern: let numberPart = this.seconds;
+    # self-disabling: skip if the FOREVER branch is already present
+    - not:
+        inside:
+          kind: statement_block
+          has:
+            stopBy: neighbor
+            pattern: if (this.nanoseconds === Duration.FOREVER.nanoseconds) { $$$BODY }
+
+fix: |-
+  if (this.nanoseconds === Duration.FOREVER.nanoseconds) {
+      return 'Forever';
+  }
+  let numberPart = this.seconds;
