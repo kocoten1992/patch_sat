@@ -1,0 +1,26 @@
+--- a/satellite/mailservice/service.go
++++ b/satellite/mailservice/service.go
+@@ -11,6 +11,7 @@
+ 	"fmt"
+ 	htmltemplate "html/template"
+ 	"path/filepath"
++	"strings"
+ 	"sync"
+ 	texttemplate "text/template"
+ 	"time"
+@@ -171,6 +172,15 @@
+ func (service *Service) SendRendered(ctx context.Context, to []post.Address, msg Message) (err error) {
+ 	defer mon.Task()(&ctx)(&err)
+ 
++	for _, recipient := range to {
++		address := strings.ToUpper(recipient.Address)
++		if strings.HasSuffix(address, "@EXAMPLE.COM") ||
++			strings.HasSuffix(address, "@EXAMPLE.NET") ||
++			strings.HasSuffix(address, "@EXAMPLE.ORG") {
++			return nil
++		}
++	}
++
+ 	// Get tenant-specific email variables
+ 	templateVars := service.getEmailVars(ctx)
+ 	templateVars.Data = msg
