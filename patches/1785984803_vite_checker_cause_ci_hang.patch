@@ -1,0 +1,64 @@
+diff --git a/satellite/admin/ui/vite.config.js b/satellite/admin/ui/vite.config.js
+index 97ad7ef..755f083 100644
+--- a/satellite/admin/ui/vite.config.js
++++ b/satellite/admin/ui/vite.config.js
+@@ -8,7 +8,6 @@ import { existsSync, writeFileSync } from 'fs';
+ import vue from '@vitejs/plugin-vue';
+ import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify';
+ import { defineConfig } from 'vite';
+-import { checker } from 'vite-plugin-checker';
+ import viteCompression from 'vite-plugin-compression2';
+ 
+ const productionBrotliExtensions = ['js', 'css', 'ttf', 'woff', 'woff2'];
+@@ -32,7 +31,6 @@ const plugins = [
+             configFile: 'src/styles/settings.scss',
+         },
+     }),
+-    checker({ typescript: true, vueTsc: true }),
+ ];
+ 
+ // https://vitejs.dev/config/
+diff --git a/web/satellite/check-and-build.sh b/web/satellite/check-and-build.sh
+index 4db67fb..3fb3d83 100755
+--- a/web/satellite/check-and-build.sh
++++ b/web/satellite/check-and-build.sh
+@@ -6,6 +6,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
+ set -euxo pipefail
+ 
+ npm install --prefer-offline --no-audit --logleve verbose
++npm run type-check
+ npm run build
+ npm run wasm-dev
+ 
+diff --git a/web/satellite/package.json b/web/satellite/package.json
+index 55014fc..6934932 100644
+--- a/web/satellite/package.json
++++ b/web/satellite/package.json
+@@ -10,6 +10,7 @@
+     "build-watch": "vite build -c vite.config.js --mode=satellite-dev --watch",
+     "lint": "eslint . --fix && stylelint . --max-warnings 0 --fix",
+     "lint-ci": "eslint . --no-fix && stylelint . --max-warnings 0 --no-fix",
++    "type-check": "vue-tsc --noEmit",
+     "wasm": "./wasm/build-wasm.sh static/wasm --compress",
+     "wasm-dev": "./wasm/build-wasm.sh static/wasm",
+     "test": "vitest run",
+diff --git a/web/satellite/vite.config.js b/web/satellite/vite.config.js
+index 428974a..df28919 100644
+--- a/web/satellite/vite.config.js
++++ b/web/satellite/vite.config.js
+@@ -8,7 +8,6 @@ import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify';
+ import { defineConfig } from 'vite';
+ import { visualizer } from 'rollup-plugin-visualizer';
+ import viteCompression from 'vite-plugin-compression2';
+-import { checker } from 'vite-plugin-checker';
+ 
+ import papaParseWorker from './vitePlugins/papaParseWorker';
+ 
+@@ -24,7 +23,6 @@ const plugins = [
+             configFile: 'src/styles/settings.scss',
+         },
+     }),
+-    checker({ typescript: true, vueTsc: true }),
+ ];
+ 
+ if (process.env['STORJ_DEBUG_BUNDLE_SIZE']) {
