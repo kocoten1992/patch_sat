@@ -60,7 +60,7 @@ apply_comby_rule() {
 # git revert
 commits=(
     # ci: remove CockroachDB and Spanner integration tests
-    "40bb0c87b84fa05013136699fd4043af5f2283d1"
+    # "40bb0c87b84fa05013136699fd4043af5f2283d1"
 )
 
 for commit in "${commits[@]}"; do
