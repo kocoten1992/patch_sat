@@ -96,3 +96,5 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1785984803_vite_checker_cause_ci_hang.pat
 # patch postgres to use cockroachdb feature
 apply_rule "$SCRIPT_DIR/patches/1786433401_add_postgres_aost.yml" "$DIR/shared/dbutil/impl.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433405_add_postgres_aost_bounded.yml" "$DIR/shared/dbutil/impl.go" 1
+
+gofmt -w "$DIR"
