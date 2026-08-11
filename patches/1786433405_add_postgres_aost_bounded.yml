@@ -1,0 +1,19 @@
+id: add-postgres-aost-bounded
+language: Go
+
+rule:
+  pattern: switch impl { $$$CASES }
+  inside:
+    stopBy: end
+    pattern:
+      context: "func (impl Implementation) AsOfSystemTimeBounded(t time.Time) string { $$$ }"
+      selector: method_declaration
+  # self-disabling: skip if the Postgres case is already present
+  not:
+    regex: 'case Postgres:'
+
+fix: |-
+  switch impl {
+  	case Postgres:
+  		return " AS OF SYSTEM TIME with_min_timestamp('" + t.UTC().Format("2006-01-02 15:04:05.000000-07:00") + "') "
+  	$$$CASES	}

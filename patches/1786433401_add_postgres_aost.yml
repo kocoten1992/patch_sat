@@ -1,0 +1,20 @@
+id: add-postgres-aost
+language: Go
+
+rule:
+  pattern: switch impl { $$$CASES }
+  inside:
+    stopBy: end
+    any:
+      - pattern:
+          context: "func (impl Implementation) AsOfSystemTime(t time.Time) string { $$$ }"
+          selector: method_declaration
+  # self-disabling: skip if the Postgres case is already present
+  not:
+    regex: 'case Postgres:'
+
+fix: |-
+  switch impl {
+  	case Postgres:
+  		return " AS OF SYSTEM TIME '" + strconv.FormatInt(t.UnixNano(), 10) + "' "
+  	$$$CASES	}
