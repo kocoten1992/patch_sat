@@ -1,0 +1,54 @@
+# CockroachDB's sha256() returns a hex STRING; PostgreSQL's returns bytea.
+#
+# The CAS conditions `sha256(remote_alias_pieces) = $3` therefore make
+# CockroachDB infer $3 as STRING, and pgx sends OldPiecesHash ([]byte) as raw
+# bytes, which are not valid UTF-8:
+#
+#   ERROR: error in argument for $3: invalid UTF-8 sequence (SQLSTATE 22021)
+#
+# The TiDBAdapter already handles exactly this, with the comment "SHA2(x,256)
+# in MySQL/TiDB returns a hex string, so we hex-encode the expected hash".
+# CockroachDB behaves the same way, so the Postgres adapter needs the same
+# treatment. hex.EncodeToString is already imported in this file for the TiDB
+# path.
+#
+# NOTE: this makes the Postgres path CockroachDB-only — the resulting query is
+# NOT correct against real PostgreSQL, where the comparison would then be
+# bytea = text. That is the intended direction for this fork, but it is a
+# genuine divergence rather than a compatible superset.
+#
+# Affects UpdateSegmentPieces and BatchUpdateSegmentPieces, both on the repair
+# path, so this is a production bug and not only a test failure.
+#
+# Expected match count: 2
+
+id: postgres-update-segment-pieces-hex-cas
+language: Go
+rule:
+  kind: selector_expression
+  regex: '^opts\.OldPiecesHash$'
+  all:
+    - inside:
+        kind: argument_list
+        regex: 'updateRepairAt'
+    - inside:
+        stopBy: end
+        kind: method_declaration
+        regex: 'func \(p \*PostgresAdapter\) UpdateSegmentPieces'
+fix: 'hex.EncodeToString(opts.OldPiecesHash)'
+
+---
+id: postgres-batch-update-segment-pieces-hex-cas
+language: Go
+rule:
+  kind: selector_expression
+  regex: '^entry\.OldPiecesHash$'
+  all:
+    - inside:
+        kind: argument_list
+        regex: 'newAliasPieces\[i\]'
+    - inside:
+        stopBy: end
+        kind: method_declaration
+        regex: 'func \(p \*PostgresAdapter\) BatchUpdateSegmentPieces'
+fix: 'hex.EncodeToString(entry.OldPiecesHash)'

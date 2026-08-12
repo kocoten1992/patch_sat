@@ -1,0 +1,141 @@
+# Updates shared/dbutil/impl_test.go so the table-driven AS OF SYSTEM TIME
+# expectations for dbutil.Postgres match the CockroachDB forms introduced by
+# 1786433401, 1786433405, 1786433410 and 1786433415.
+#
+# Each rule is scoped to a single test function and a single row, and is
+# self-disabling: once the row carries the new expectation the regex no longer
+# matches, so `apply` will report a count mismatch if this is run twice or if
+# upstream changes the row.
+#
+# Expected total match count: 11
+
+id: impl-test-postgres-aost
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, time: time\.Unix\(0, 1620721781789035200\), exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemTime\('
+fix: '{impl: dbutil.Postgres, time: time.Unix(0, 1620721781789035200), exp: " AS OF SYSTEM TIME ''1620721781789035200'' "}'
+
+---
+id: impl-test-postgres-aost-bounded
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, time: time\.Unix\(0, 1620721781789035200\), exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemTimeBounded\('
+fix: '{impl: dbutil.Postgres, time: time.Unix(0, 1620721781789035200), exp: " AS OF SYSTEM TIME with_min_timestamp(''2021-05-11 08:29:41.789035+00:00'') "}'
+
+---
+id: impl-test-postgres-interval-nano
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -1, exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemInterval\('
+fix: '{impl: dbutil.Postgres, interval: -1, exp: " AS OF SYSTEM TIME ''-1µs'' "}'
+
+---
+id: impl-test-postgres-interval-milli
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -time\.Millisecond, exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemInterval\('
+fix: '{impl: dbutil.Postgres, interval: -time.Millisecond, exp: " AS OF SYSTEM TIME ''-1ms'' "}'
+
+---
+id: impl-test-postgres-interval-seconds
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -2 \* time\.Second, exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemInterval\('
+fix: '{impl: dbutil.Postgres, interval: -2 * time.Second, exp: " AS OF SYSTEM TIME ''-2s'' "}'
+
+---
+id: impl-test-postgres-interval-bounded-nano
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -1, exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemIntervalBounded\('
+fix: '{impl: dbutil.Postgres, interval: -1, exp: " AS OF SYSTEM TIME ''-1µs'' "}'
+
+---
+id: impl-test-postgres-interval-bounded-milli
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -time\.Millisecond, exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemIntervalBounded\('
+fix: '{impl: dbutil.Postgres, interval: -time.Millisecond, exp: " AS OF SYSTEM TIME ''-1ms'' "}'
+
+---
+id: impl-test-postgres-interval-bounded-seconds
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -2 \* time\.Second, exp: ""\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestAsOfSystemIntervalBounded\('
+fix: '{impl: dbutil.Postgres, interval: -2 * time.Second, exp: " AS OF SYSTEM TIME ''-2s'' "}'
+
+---
+id: impl-test-postgres-wrap-time
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, time: time\.Unix\(0, 1620721781789035200\), exp: "SELECT 1"\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestWrapAsOfSystemTime\('
+fix: '{impl: dbutil.Postgres, time: time.Unix(0, 1620721781789035200), exp: "SELECT * FROM (SELECT 1) AS OF SYSTEM TIME ''1620721781789035200'' "}'
+
+---
+id: impl-test-postgres-wrap-interval-nano
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -1, exp: "SELECT 1"\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestWrapAsOfSystemInterval\('
+fix: '{impl: dbutil.Postgres, interval: -1, exp: "SELECT * FROM (SELECT 1) AS OF SYSTEM TIME ''-1µs'' "}'
+
+---
+id: impl-test-postgres-wrap-interval-milli
+language: Go
+rule:
+  kind: literal_value
+  regex: '^\{impl: dbutil\.Postgres, interval: -time\.Millisecond, exp: "SELECT 1"\}$'
+  inside:
+    stopBy: end
+    kind: function_declaration
+    regex: 'func TestWrapAsOfSystemInterval\('
+fix: '{impl: dbutil.Postgres, interval: -time.Millisecond, exp: "SELECT * FROM (SELECT 1) AS OF SYSTEM TIME ''-1ms'' "}'

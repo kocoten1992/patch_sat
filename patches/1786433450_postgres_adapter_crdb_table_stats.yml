@@ -1,0 +1,55 @@
+# With a postgres:// URL, metabase.Open builds a PostgresAdapter, so the
+# CockroachAdapter overrides never run. Two of them are not optional against a
+# CockroachDB server:
+#
+#   * PostgresAdapter.GetTableStats reads pg_stat_user_tables (n_live_tup,
+#     last_analyze). CockroachDB does not provide that view, so the query errors
+#     rather than returning sql.ErrNoRows, and TestGetTableStats fails. It also
+#     ignores opts.AsOfSystemInterval entirely.
+#   * PostgresAdapter.UpdateTableStats runs VACUUM, which CockroachDB does not
+#     support.
+#
+# Both are replaced with the CockroachAdapter bodies. This is the first slice of
+# folding CockroachAdapter into PostgresAdapter; the remaining overrides
+# (CommitPendingObjectSegment, CommitInlineSegment, IterateLoopSegments,
+# DeleteAllBucketObjects, MigrateToLatest, TestMigrateToLatest) still need doing.
+#
+# Expected total match count: 2
+
+id: postgres-adapter-crdb-get-table-stats
+language: Go
+rule:
+  pattern:
+    context: "func (p *PostgresAdapter) GetTableStats(ctx context.Context, opts GetTableStats) (result TableStats, err error) { $$$ }"
+    selector: method_declaration
+  not:
+    regex: 'SHOW STATISTICS FOR TABLE'
+fix: |-
+  func (p *PostgresAdapter) GetTableStats(ctx context.Context, opts GetTableStats) (result TableStats, err error) {
+  	defer mon.Task()(&ctx)(&err)
+  	// statistics are used when they are up to date, otherwise fall back to a count
+  	var created time.Time
+  	err = p.db.QueryRowContext(ctx, `WITH stats AS (SHOW STATISTICS FOR TABLE segments) SELECT row_count, created FROM stats ORDER BY created DESC LIMIT 1`).
+  		Scan(&result.SegmentCount, &created)
+  	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+  		return TableStats{}, err
+  	}
+
+  	if !created.IsZero() && statsUpToDateThreshold > time.Since(created) {
+  		return result, nil
+  	}
+  	err = p.db.QueryRowContext(ctx, `SELECT count(1) FROM segments `+p.impl.AsOfSystemInterval(opts.AsOfSystemInterval)).Scan(&result.SegmentCount)
+  	if err != nil {
+  		return TableStats{}, err
+  	}
+  	return result, nil
+  }
+
+---
+id: postgres-adapter-crdb-update-table-stats
+language: Go
+rule:
+  pattern:
+    context: 'func f() { _, err := p.db.ExecContext(ctx, "VACUUM segments") }'
+    selector: call_expression
+fix: 'p.db.ExecContext(ctx, "CREATE STATISTICS test FROM segments")'

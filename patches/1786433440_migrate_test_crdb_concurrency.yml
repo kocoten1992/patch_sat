@@ -1,0 +1,17 @@
+# satellite/satellitedb/migrate_test.go picks snapshot-loading concurrency from
+# the connection string: 4 for "cockroach", 16 otherwise. A postgres:// URL
+# pointing at CockroachDB therefore drives 16 concurrent CREATE DATABASE /
+# full-migration workloads against CRDB inside an 8-minute testcontext budget,
+# which is slow and flaky.
+#
+# In this fork every backend is CockroachDB, so drop the non-CRDB fast path.
+#
+# Expected total match count: 1
+
+id: migrate-test-crdb-concurrency
+language: Go
+rule:
+  pattern:
+    context: "func f() { sem.Init(16) }"
+    selector: call_expression
+fix: 'sem.Init(4)'

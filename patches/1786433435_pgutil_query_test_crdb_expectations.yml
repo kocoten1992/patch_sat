@@ -1,0 +1,20 @@
+# shared/dbutil/pgutil/pgutil_test.TestQuery branches on db.Implementation to
+# choose both the DDL it issues and the schema it expects back. tempdb.OpenUnique
+# hard-codes Implementation: dbutil.Postgres for any postgres:// URL, so when
+# STORJ_TEST_POSTGRES points at CockroachDB the test issues PostgreSQL DDL and
+# then asserts PostgreSQL introspection output ("(c <> ''::text)") against a
+# CockroachDB server that reports "(c != ''::STRING)".
+#
+# Both sites move Postgres onto the CockroachDB branch.
+#
+# Expected total match count: 2
+
+id: pgutil-query-test-postgres-is-crdb
+language: Go
+rule:
+  pattern:
+    context: "func f() { if db.Implementation != dbutil.Cockroach { return } }"
+    selector: binary_expression
+  not:
+    regex: 'dbutil\.Postgres'
+fix: 'db.Implementation != dbutil.Cockroach && db.Implementation != dbutil.Postgres'

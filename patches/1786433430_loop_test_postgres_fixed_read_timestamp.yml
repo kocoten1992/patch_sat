@@ -1,0 +1,33 @@
+# satellite/metabase/loop_test.go gates the fixed-read-timestamp tests on the
+# implementation's identity rather than on its capability. Once dbutil.Postgres
+# emits AS OF SYSTEM TIME (1786433401), tagsqlIterateLoopSegments no longer
+# refuses a ReadTimestamp, so the "must refuse" branch fails; and the
+# GC-snapshot regression test at the second site silently skips.
+#
+# Both sites are safe to flip: tagsqlIterateLoopSegments and
+# tagsqlLoopSegmentIterator.doNextQuery go through impl.AsOfSystemTime /
+# impl.AsOfSystemInterval generically, so the patched Postgres implementation
+# is honoured without any adapter change.
+#
+# Expected total match count: 2
+
+id: loop-test-postgres-supports-read-timestamp
+language: Go
+rule:
+  pattern:
+    context: "func f() { supported := impl == dbutil.Cockroach || impl == dbutil.TiDB }"
+    selector: short_var_declaration
+  not:
+    regex: 'dbutil\.Postgres'
+fix: 'supported := impl == dbutil.Cockroach || impl == dbutil.TiDB || impl == dbutil.Postgres'
+
+---
+id: loop-test-postgres-requires-fixed-timestamp
+language: Go
+rule:
+  pattern:
+    context: "func f() { if impl != dbutil.Cockroach && impl != dbutil.TiDB { return } }"
+    selector: binary_expression
+  not:
+    regex: 'dbutil\.Postgres'
+fix: 'impl != dbutil.Cockroach && impl != dbutil.TiDB && impl != dbutil.Postgres'

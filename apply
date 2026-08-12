@@ -96,5 +96,18 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1785984803_vite_checker_cause_ci_hang.pat
 # patch postgres to use cockroachdb feature
 apply_rule "$SCRIPT_DIR/patches/1786433401_add_postgres_aost.yml" "$DIR/shared/dbutil/impl.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433405_add_postgres_aost_bounded.yml" "$DIR/shared/dbutil/impl.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433410_add_postgres_aost_interval.yml" "$DIR/shared/dbutil/impl.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433415_add_postgres_aost_interval_bounded.yml" "$DIR/shared/dbutil/impl.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433420_impl_test_postgres_aost.yml" "$DIR/shared/dbutil/impl_test.go" 11
+apply_rule "$SCRIPT_DIR/patches/1786433430_loop_test_postgres_fixed_read_timestamp.yml" "$DIR/satellite/metabase/loop_test.go" 2
+apply_rule "$SCRIPT_DIR/patches/1786433435_pgutil_query_test_crdb_expectations.yml" "$DIR/shared/dbutil/pgutil/query_test.go" 2
+apply_rule "$SCRIPT_DIR/patches/1786433425_pgutil_fk_schema_qualified.yml" "$DIR/shared/dbutil/pgutil/query.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433440_migrate_test_crdb_concurrency.yml" "$DIR/satellite/satellitedb/migrate_test.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433442_pgutil_ignore_drop_schema_timeout.yml" "$DIR/shared/dbutil/pgutil/db.go" 2
+apply_rule "$SCRIPT_DIR/patches/1786433450_postgres_adapter_crdb_table_stats.yml" "$DIR/satellite/metabase/stats.go" 2
+apply_rule "$SCRIPT_DIR/patches/1786433455_stats_test_postgres.yml" "$DIR/satellite/metabase/stats_test.go" 2
+apply_rule "$SCRIPT_DIR/patches/1786433465_postgres_adapter_crdb_delete_cte.yml" "$DIR/satellite/metabase/delete_bucket.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433470_postgres_sha256_hex_cas.yml" "$DIR/satellite/metabase/update.go" 2
+apply_rule "$SCRIPT_DIR/patches/1786433475_pgutil_strip_sequence_schema.yml" "$DIR/shared/dbutil/pgutil/query.go" 2
 
 gofmt -w "$DIR"

@@ -1,0 +1,32 @@
+# satellite/metabase/stats_test.go gates the AS OF SYSTEM TIME and
+# table-statistics subtests on dbutil.Cockroach. Apply after
+# 1786433450_postgres_adapter_crdb_table_stats.yml, which gives PostgresAdapter
+# the CockroachDB GetTableStats/UpdateTableStats bodies these subtests need;
+# without that patch these tests will fail rather than skip.
+#
+# Expected total match count: 2
+
+id: stats-test-postgres-as-of-interval
+language: Go
+rule:
+  pattern:
+    context: "func f() { if db.Implementation() == dbutil.Cockroach { g() } }"
+    selector: binary_expression
+  not:
+    any:
+      # skip the operands of the `... || ... TiDB` condition, handled below
+      - inside:
+          kind: binary_expression
+      - regex: 'dbutil\.Postgres'
+fix: 'db.Implementation() == dbutil.Cockroach || db.Implementation() == dbutil.Postgres'
+
+---
+id: stats-test-postgres-use-statistics
+language: Go
+rule:
+  pattern:
+    context: "func f() { if db.Implementation() == dbutil.Cockroach || db.Implementation() == dbutil.TiDB { g() } }"
+    selector: binary_expression
+  not:
+    regex: 'dbutil\.Postgres'
+fix: 'db.Implementation() == dbutil.Cockroach || db.Implementation() == dbutil.TiDB || db.Implementation() == dbutil.Postgres'
