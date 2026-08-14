@@ -19,9 +19,11 @@ messages sent via Service.Send, which bypasses SendRendered entirely. Fake
 senders (simulate.NoMail, simulate.LinkClicker, and the EmailVerifier used in
 tests) are untouched, since they are not SMTPSender.
 
+diff --git a/private/post/sender.go b/private/post/sender.go
+index c435264..bf5513d 100644
 --- a/private/post/sender.go
 +++ b/private/post/sender.go
-@@ -9,6 +9,7 @@
+@@ -10,6 +10,7 @@ import (
  	"net"
  	"net/mail"
  	"net/smtp"
@@ -29,7 +31,7 @@ tests) are untouched, since they are not SMTPSender.
  
  	"github.com/spacemonkeygo/monkit/v3"
  	"github.com/zeebo/errs"
-@@ -37,6 +38,17 @@
+@@ -37,6 +38,19 @@ func (sender *SMTPSender) FromAddress() Address {
  func (sender *SMTPSender) SendEmail(ctx context.Context, msg *Message) (err error) {
  	defer mon.Task()(&ctx)(&err)
  

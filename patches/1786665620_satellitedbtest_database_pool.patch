@@ -1,0 +1,370 @@
+satellite/satellitedb/satellitedbtest: reuse test databases instead of dropping.
+
+PENDING UPSTREAM. Delete this patch once the change lands in storj upstream.
+Not fork delta - see the companion TestingDeleteAll patch for the reasoning.
+Requires that patch; apply it first.
+
+Per-test CREATE/DROP DATABASE is the dominant cost of a wide test run, and on
+CockroachDB it is worse than merely slow: every dropped database schedules a
+schema-change GC job, and storj generates them faster than the cluster drains
+them, so jobs pile up, CPU saturates, and tests stall or fail on starvation.
+
+This replaces create/drop-per-test with acquire / reset / release against
+reusable databases, gated on STORJ_TEST_DB_POOL (or -db-pool). Default off, so
+behaviour is unchanged unless asked for.
+
+Measured on this fork, full ./satellite/... sweep:
+
+  * before: ~1800 databases created and dropped, run failed near the end
+  * after:  ~930 databases, no drops at all, two consecutive green sweeps at
+            -p 2 and -p 4
+
+Design notes that are not obvious from the diff:
+
+  * Grow-on-demand, never blocking. A fixed-size pool deadlocks:
+    satellitedbtest.Run and metabasetest.Run both call t.Parallel(), and a
+    multi-satellite testplanet acquires a master and a metabase database per
+    satellite inside a single test, so a test holding one database can be
+    waiting on another.
+  * The pool stores connection strings, not live handles, because
+    TempDatabase.Close unconditionally closes the underlying connection. This
+    turns out to be better anyway - each acquire gets a fresh connection with no
+    session state carried over - and it keeps the pool backend-agnostic, since
+    ConnStr already encodes the temporary database or schema.
+  * Reset happens on acquire, not release, so a test that panics cannot poison
+    the next holder.
+  * Pooling is opt-in per call site via TempDBSchemaConfig.PoolKey. An empty key
+    disables it. Reuse is only safe where the caller resets a recycled database
+    before handing it to the test, so mudplanet's newPgTempDB, which does not,
+    keeps its existing behaviour rather than being silently pooled.
+  * The metabase pool key splits on TestingUniqueUnversioned. That config field
+    adds a migration step creating the objects_one_unversioned_per_location
+    unique index, so databases created with it set are not interchangeable with
+    those created without. It is the only config field the migration reads.
+  * satellite/satellitedb/migrate_test.go opens its temporary databases directly
+    via tempdb.OpenUnique rather than through satellitedbtest, so it is
+    unaffected and still creates and drops its own. That is intended - it needs
+    specific migration versions - and seeing load-schema-* and migrate-*
+    databases dropped during a pooled run does not mean the pool has failed.
+
+Known limitation: the pool is per-process, so each package binary keeps its own
+free list and nothing is shared across the ~60 packages in a sweep. Moving the
+free list to a lease table in the master database would converge the count on
+global peak concurrency instead. Optimisation, not a defect.
+
+STORJ_TEST_COCKROACH_NODROP is superseded by this and should be left unset.
+diff --git a/satellite/satellitedb/satellitedbtest/pool.go b/satellite/satellitedb/satellitedbtest/pool.go
+new file mode 100644
+index 0000000..73d0847
+--- /dev/null
++++ b/satellite/satellitedb/satellitedbtest/pool.go
+@@ -0,0 +1,181 @@
++// Copyright (C) 2026 Storj Labs, Inc.
++// See LICENSE for copying information.
++
++package satellitedbtest
++
++import (
++	"context"
++	"flag"
++	"os"
++	"sync"
++
++	"github.com/spacemonkeygo/monkit/v3"
++	"go.uber.org/zap"
++
++	"storj.io/storj/shared/dbutil"
++	"storj.io/storj/shared/dbutil/tempdb"
++	"storj.io/storj/shared/tagsql"
++)
++
++var mon = monkit.Package()
++
++// dbPoolEnabled turns on reuse of test databases.
++//
++// Creating a database and running the migration costs seconds; deleting every
++// row from an already-migrated database costs tens of milliseconds. On
++// CockroachDB the create/drop cycle is worse than merely slow, because every
++// dropped database schedules a schema-change GC job and a wide test run
++// generates them faster than the cluster drains them.
++var dbPoolEnabled = flag.Bool("db-pool", stringToBool(os.Getenv("STORJ_TEST_DB_POOL")),
++	"Reuse test databases by deleting their rows instead of dropping and recreating them")
++
++// poolEntry is a database that has been created and migrated, and is currently
++// free. Only the metadata is kept: TempDatabase.Close unconditionally closes the
++// underlying connection, so a pooled database is reopened on each acquire rather
++// than held open. The connection string already points at the temporary database
++// (or schema), so reopening it works for every backend without the pool needing
++// to know which one is in use.
++type poolEntry struct {
++	connStr string
++	schema  string
++	driver  string
++	impl    dbutil.Implementation
++}
++
++// dbPool hands out reusable test databases.
++//
++// It grows on demand rather than holding a fixed number of databases, and never
++// blocks waiting for one to come free. That is required, not merely convenient:
++// satellitedbtest.Run and metabasetest.Run both call t.Parallel(), and a single
++// multi-satellite testplanet acquires a master and a metabase database per
++// satellite, so a test holding one database can be waiting on another. A fixed
++// pool would deadlock. Growing on demand converges on actual peak concurrency
++// and then issues no further DDL.
++type dbPool struct {
++	mu   sync.Mutex
++	free map[string][]poolEntry
++
++	// recycled records, by connection string, whether the database handed out
++	// under that string came off the free list and therefore still holds the
++	// previous holder's rows. The reset is left to the caller because only the
++	// caller has a typed handle that knows the schema.
++	recycled map[string]bool
++}
++
++var pool = &dbPool{
++	free:     map[string][]poolEntry{},
++	recycled: map[string]bool{},
++}
++
++// openTestDB returns a temporary database for a test, from the pool when pooling
++// is enabled and a pool key was supplied, and by creating a fresh one otherwise.
++//
++// An empty poolKey disables pooling for that call site. Pooling is only safe
++// where the caller resets a recycled database before handing it to the test, so
++// it is opt-in per call site rather than on by default.
++func openTestDB(ctx context.Context, log *zap.Logger, connURL, namePrefix, poolKey string) (*dbutil.TempDatabase, error) {
++	if *dbPoolEnabled && poolKey != "" {
++		return pool.acquire(ctx, log, poolKey, connURL, namePrefix)
++	}
++
++	tempDB, err := tempdb.OpenUnique(ctx, log, connURL, namePrefix)
++	if err != nil {
++		return nil, err
++	}
++	if *cockroachNoDrop && tempDB.Driver == "cockroach" {
++		tempDB.Cleanup = func(tagsql.DB) error { return nil }
++	}
++	return tempDB, nil
++}
++
++// acquire returns a database from the free list for key, or creates one when the
++// list is empty.
++func (p *dbPool) acquire(ctx context.Context, log *zap.Logger, key, connURL, namePrefix string) (*dbutil.TempDatabase, error) {
++	var entry poolEntry
++	var reused bool
++
++	p.mu.Lock()
++	if n := len(p.free[key]); n > 0 {
++		entry, p.free[key] = p.free[key][n-1], p.free[key][:n-1]
++		reused = true
++	}
++	p.mu.Unlock()
++
++	if !reused {
++		tempDB, err := tempdb.OpenUnique(ctx, log, connURL, namePrefix)
++		if err != nil {
++			return nil, err
++		}
++		entry = poolEntry{
++			connStr: tempDB.ConnStr,
++			schema:  tempDB.Schema,
++			driver:  tempDB.Driver,
++			impl:    tempDB.Implementation,
++		}
++		p.setRecycled(entry.connStr, false)
++		tempDB.Cleanup = p.releaseFunc(key, entry)
++		return tempDB, nil
++	}
++
++	db, err := tagsql.Open(ctx, entry.driver, entry.connStr, nil)
++	if err != nil {
++		// The database is unusable; drop it from the pool and start over rather
++		// than handing back a broken handle.
++		return p.acquire(ctx, log, key, connURL, namePrefix)
++	}
++	dbutil.Configure(ctx, db, "tmp_pool", mon)
++	p.setRecycled(entry.connStr, true)
++
++	return &dbutil.TempDatabase{
++		DB:             db,
++		ConnStr:        entry.connStr,
++		Schema:         entry.schema,
++		Driver:         entry.driver,
++		Implementation: entry.impl,
++		Cleanup:        p.releaseFunc(key, entry),
++	}, nil
++}
++
++// releaseFunc returns a TempDatabase cleanup closure that returns the database to
++// the free list instead of dropping it. It is idempotent because TempDatabase
++// values can be closed more than once.
++func (p *dbPool) releaseFunc(key string, entry poolEntry) func(tagsql.DB) error {
++	var once sync.Once
++	return func(tagsql.DB) error {
++		once.Do(func() {
++			p.mu.Lock()
++			p.free[key] = append(p.free[key], entry)
++			p.mu.Unlock()
++		})
++		return nil
++	}
++}
++
++func (p *dbPool) setRecycled(connStr string, v bool) {
++	p.mu.Lock()
++	p.recycled[connStr] = v
++	p.mu.Unlock()
++}
++
++// wasRecycled reports whether the database behind connStr came off the free list
++// and so still holds rows from its previous holder.
++func (p *dbPool) wasRecycled(connStr string) bool {
++	if !*dbPoolEnabled {
++		return false
++	}
++	p.mu.Lock()
++	defer p.mu.Unlock()
++	return p.recycled[connStr]
++}
++
++// PoolStats reports the number of databases currently on the free list, for
++// tests that want to assert the pool is actually being reused.
++func PoolStats() map[string]int {
++	pool.mu.Lock()
++	defer pool.mu.Unlock()
++	out := make(map[string]int, len(pool.free))
++	for k, v := range pool.free {
++		out[k] = len(v)
++	}
++	return out
++}
+diff --git a/satellite/satellitedb/satellitedbtest/run.go b/satellite/satellitedb/satellitedbtest/run.go
+index c3fc43c..932c735 100644
+--- a/satellite/satellitedb/satellitedbtest/run.go
++++ b/satellite/satellitedb/satellitedbtest/run.go
+@@ -27,8 +27,6 @@ import (
+ 	"storj.io/storj/shared/dbutil"
+ 	"storj.io/storj/shared/dbutil/dbtest"
+ 	"storj.io/storj/shared/dbutil/pgutil"
+-	"storj.io/storj/shared/dbutil/tempdb"
+-	"storj.io/storj/shared/tagsql"
+ )
+ 
+ // Cockroach DROP DATABASE takes a significant amount, however, it has no importance in our tests.
+@@ -42,6 +40,25 @@ func stringToBool(v string) bool {
+ 	return b
+ }
+ 
++// poolKeyMaster is the pool key for satellite master databases. There is only
++// one, because nothing in satellitedb.Options changes the schema.
++const poolKeyMaster = "master"
++
++// metabasePoolKey returns the pool key for a metabase database opened with the
++// given config.
++//
++// TestingUniqueUnversioned adds a migration step that creates the
++// objects_one_unversioned_per_location unique index (see
++// metabase.PostgresAdapter.testMigrateToLatest), so databases created with it
++// set are not interchangeable with those created without it. It is the only
++// config field the migration reads.
++func metabasePoolKey(config metabase.Config) string {
++	if config.TestingUniqueUnversioned {
++		return "metabase-uniqueunversioned"
++	}
++	return "metabase"
++}
++
+ // SatelliteDatabases maybe name can be better.
+ type SatelliteDatabases struct {
+ 	Name       string
+@@ -156,13 +173,10 @@ func CreateMasterDB(ctx context.Context, log *zap.Logger, name string, category
+ 	log.Debug("creating", zap.String("suffix", schemaSuffix))
+ 	schema := SchemaName(name, category, index, schemaSuffix)
+ 
+-	tempDB, err := tempdb.OpenUnique(ctx, log, dbInfo.URL, schema)
++	tempDB, err := openTestDB(ctx, log, dbInfo.URL, schema, poolKeyMaster)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	if *cockroachNoDrop && tempDB.Driver == "cockroach" {
+-		tempDB.Cleanup = func(d tagsql.DB) error { return nil }
+-	}
+ 
+ 	return CreateMasterDBOnTopOf(ctx, log, tempDB, options)
+ }
+@@ -171,7 +185,21 @@ func CreateMasterDB(ctx context.Context, log *zap.Logger, name string, category
+ // temporary database.
+ func CreateMasterDBOnTopOf(ctx context.Context, log *zap.Logger, tempDB *dbutil.TempDatabase, options satellitedb.Options) (db satellite.DB, err error) {
+ 	masterDB, err := satellitedb.Open(ctx, log.Named("db"), tempDB.ConnStr, options)
+-	return &tempMasterDB{DB: masterDB, tempDB: tempDB}, err
++	if err != nil {
++		return &tempMasterDB{DB: masterDB, tempDB: tempDB}, err
++	}
++
++	// A database off the pool's free list is already migrated but still holds
++	// the previous test's rows. Reset it here, where there is a typed handle
++	// that knows the schema. The caller's TestMigrateToLatest then finds the
++	// database at the latest version and does nothing.
++	if pool.wasRecycled(tempDB.ConnStr) {
++		if err := masterDB.Testing().TestingDeleteAll(ctx); err != nil {
++			return nil, errs.Combine(err, masterDB.Close(), tempDB.Close())
++		}
++	}
++
++	return &tempMasterDB{DB: masterDB, tempDB: tempDB}, nil
+ }
+ 
+ // TempDBSchemaConfig defines parameters required for the temp database.
+@@ -179,6 +207,13 @@ type TempDBSchemaConfig struct {
+ 	Name     string
+ 	Category string
+ 	Index    int
++
++	// PoolKey opts this call site into database reuse and selects which pool it
++	// draws from. Databases are only interchangeable within a key, so anything
++	// that changes the schema must be part of it. An empty PoolKey disables
++	// reuse for the call site, which is the safe default for callers that do
++	// not reset a recycled database before use.
++	PoolKey string
+ }
+ 
+ // CreateTempDB creates a new temporary database (Cockroach or Postgresql).
+@@ -192,13 +227,10 @@ func CreateTempDB(ctx context.Context, log *zap.Logger, tcfg TempDBSchemaConfig,
+ 
+ 	schema := SchemaName(tcfg.Name, tcfg.Category, tcfg.Index, schemaSuffix)
+ 
+-	tempDB, err := tempdb.OpenUnique(ctx, log, dbInfo.URL, schema)
++	tempDB, err := openTestDB(ctx, log, dbInfo.URL, schema, tcfg.PoolKey)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	if *cockroachNoDrop && tempDB.Driver == "cockroach" {
+-		tempDB.Cleanup = func(d tagsql.DB) error { return nil }
+-	}
+ 
+ 	return tempDB, nil
+ }
+@@ -209,6 +241,7 @@ func CreateMetabaseDB(ctx context.Context, log *zap.Logger, name string, categor
+ 		Name:     name,
+ 		Category: category,
+ 		Index:    index,
++		PoolKey:  metabasePoolKey(config),
+ 	}, dbInfo)
+ 	if err != nil {
+ 		return nil, err
+@@ -223,6 +256,13 @@ func CreateMetabaseDBOnTopOf(ctx context.Context, log *zap.Logger, tempDB *dbuti
+ 	if err != nil {
+ 		return nil, err
+ 	}
++
++	if pool.wasRecycled(tempDB.ConnStr) {
++		if err := db.TestingDeleteAll(ctx); err != nil {
++			return nil, errs.Combine(err, db.Close(), tempDB.Close())
++		}
++	}
++
+ 	db.TestingSetCleanup(tempDB.Close)
+ 	return db, nil
+ }

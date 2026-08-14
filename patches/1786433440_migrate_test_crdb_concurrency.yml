@@ -12,6 +12,13 @@ id: migrate-test-crdb-concurrency
 language: Go
 rule:
   pattern:
-    context: "func f() { sem.Init(16) }"
-    selector: call_expression
+    context: |
+      func f() {
+      	if strings.Contains(connstr, "cockroach") {
+      		sem.Init(4)
+      	} else {
+      		sem.Init(16)
+      	}
+      }
+    selector: if_statement
 fix: 'sem.Init(4)'

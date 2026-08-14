@@ -1,0 +1,149 @@
+satellite/satellitedb: cover TestingDeleteAll under the schema-per-test layout.
+
+PENDING UPSTREAM. Delete this patch once the change lands in storj upstream.
+Requires the TestingDeleteAll patch; apply it first. Belongs squashed into that
+commit for the upstream PR - it is kept separate here only so the three pieces
+stay individually reviewable.
+
+TestingDeleteAll resolves table and sequence names through search_path rather
+than qualifying them, and enumerates sequences with CURRENT_SCHEMA. Which of
+those paths gets exercised depends on how the temporary database is laid out:
+
+  * upstream pgutil.OpenUnique creates a SCHEMA inside a shared database, so
+    CURRENT_SCHEMA is the temporary schema name. This is what upstream CI runs.
+  * this fork's patched pgutil.OpenUnique creates a DATABASE, so CURRENT_SCHEMA
+    is always "public".
+
+reset_test.go therefore only ever covers the second case here. This adds
+coverage of the first, by building a schema-scoped connection by hand with
+pgutil.ConnstrWithSchema and letting TestMigrateToLatest create the schema
+exactly as upstream does. It asserts CURRENT_SCHEMA really is the temporary
+schema, so it fails loudly rather than silently duplicating the other test.
+
+Skipped unless STORJ_TEST_SCHEMA_POSTGRES points at a PostgreSQL instance, so it
+is inert in this fork's normal runs.
+
+Verified against PostgreSQL: current_schema is the temporary schema and both
+bigserial sequences are found and rewound through search_path.
+diff --git a/satellite/satellitedb/reset_schema_test.go b/satellite/satellitedb/reset_schema_test.go
+new file mode 100644
+index 0000000..3c2c611
+--- /dev/null
++++ b/satellite/satellitedb/reset_schema_test.go
+@@ -0,0 +1,116 @@
++// Copyright (C) 2026 Storj Labs, Inc.
++// See LICENSE for copying information.
++
++package satellitedb_test
++
++import (
++	"os"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++	"go.uber.org/zap/zaptest"
++
++	"storj.io/common/testcontext"
++	"storj.io/common/testrand"
++	"storj.io/storj/satellite/console"
++	"storj.io/storj/satellite/satellitedb"
++	"storj.io/storj/shared/dbutil/pgutil"
++	"storj.io/storj/shared/tagsql"
++)
++
++// TestTestingDeleteAllInSchema exercises TestingDeleteAll against a database laid
++// out as one schema inside a shared database, which is what pgutil.OpenUnique
++// does upstream and therefore what upstream CI runs.
++//
++// It matters because TestingDeleteAll resolves table and sequence names through
++// search_path rather than qualifying them, and enumerates sequences with
++// CURRENT_SCHEMA. Under a database-per-test layout that is always "public", so
++// this is the only way to cover the other case.
++//
++// Point STORJ_TEST_SCHEMA_POSTGRES at a real PostgreSQL instance to run it.
++func TestTestingDeleteAllInSchema(t *testing.T) {
++	connstr := os.Getenv("STORJ_TEST_SCHEMA_POSTGRES")
++	if connstr == "" {
++		t.Skip("STORJ_TEST_SCHEMA_POSTGRES not set")
++	}
++
++	ctx := testcontext.New(t)
++	defer ctx.Cleanup()
++
++	log := zaptest.NewLogger(t)
++	schema := "resettest_" + pgutil.CreateRandomTestingSchemaName(8)
++
++	// Drop the schema at the end regardless of how the test exits.
++	master, err := tagsql.Open(ctx, "pgx", connstr, nil)
++	require.NoError(t, err)
++	defer ctx.Check(master.Close)
++	defer func() {
++		if err := pgutil.DropSchema(ctx, master, schema); err != nil {
++			t.Logf("dropping schema %q: %v", schema, err)
++		}
++	}()
++
++	// satellitedb.TestMigrateToLatest creates the schema itself when the
++	// connection string names one, so this mirrors upstream exactly.
++	schemaConnstr := pgutil.ConnstrWithSchema(connstr, schema)
++
++	db, err := satellitedb.Open(ctx, log.Named("db"), schemaConnstr, satellitedb.Options{
++		ApplicationName: "satellite-schema-reset-test",
++	})
++	require.NoError(t, err)
++	defer ctx.Check(db.Close)
++
++	require.NoError(t, db.Testing().TestMigrateToLatest(ctx))
++
++	raw := db.Testing().RawDB()
++	count := func(table string) (n int) {
++		require.NoError(t, raw.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n))
++		return n
++	}
++
++	// Confirm the layout under test really is schema-based, otherwise this test
++	// silently duplicates TestTestingDeleteAllReuse.
++	var currentSchema string
++	require.NoError(t, raw.QueryRowContext(ctx, "SELECT CURRENT_SCHEMA").Scan(&currentSchema))
++	require.Equal(t, schema, currentSchema, "expected a schema-scoped connection")
++	t.Logf("current_schema: %s", currentSchema)
++
++	var sequences int
++	require.NoError(t, raw.QueryRowContext(ctx,
++		"SELECT count(*) FROM information_schema.sequences WHERE sequence_schema = CURRENT_SCHEMA").Scan(&sequences))
++	t.Logf("sequences visible in schema: %d", sequences)
++
++	projectID := testrand.UUID()
++	_, err = db.Console().Projects().Insert(ctx, &console.Project{ID: projectID})
++	require.NoError(t, err)
++
++	user, err := db.Console().Users().Insert(ctx, &console.User{
++		ID:           testrand.UUID(),
++		FullName:     "Alice",
++		ShortName:    "A",
++		Email:        "alice@mail.test",
++		PasswordHash: testrand.Bytes(8),
++	})
++	require.NoError(t, err)
++
++	_, err = db.Console().ProjectMembers().Insert(ctx, user.ID, projectID, console.RoleAdmin)
++	require.NoError(t, err)
++
++	require.Equal(t, 1, count("users"))
++	require.Equal(t, 1, count("project_members"))
++
++	var versionBefore int
++	require.NoError(t, raw.QueryRowContext(ctx, "SELECT max(version) FROM versions").Scan(&versionBefore))
++
++	require.NoError(t, db.Testing().TestingDeleteAll(ctx))
++
++	require.Zero(t, count("users"))
++	require.Zero(t, count("projects"))
++	require.Zero(t, count("project_members"))
++
++	var versionAfter int
++	require.NoError(t, raw.QueryRowContext(ctx, "SELECT max(version) FROM versions").Scan(&versionAfter))
++	require.Equal(t, versionBefore, versionAfter)
++
++	require.NoError(t, db.Testing().TestMigrateToLatest(ctx))
++}

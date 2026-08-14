@@ -90,7 +90,7 @@ apply_comby_rule "$SCRIPT_DIR/patches/1784884786_hide_remember_me" "$DIR/web/sat
 apply_rule "$SCRIPT_DIR/patches/1784889285_add_forever_duration.yml" "$DIR/web/satellite/src/utils/time.ts" 1
 apply_rule "$SCRIPT_DIR/patches/1784889338_add_forever_short_string.yml" "$DIR/web/satellite/src/utils/time.ts" 1
 apply_comby_rule "$SCRIPT_DIR/patches/1784889388_session_timeout_long_options" "$DIR/web/satellite/src/components/dialogs/SetSessionTimeoutDialog.vue" 1
-git -C $DIR apply --recount "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domains.patch"
+git -C $DIR apply "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domains.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1785984803_vite_checker_cause_ci_hang.patch"
 
 # patch postgres to use cockroachdb feature
@@ -111,5 +111,10 @@ apply_rule "$SCRIPT_DIR/patches/1786433475_pgutil_strip_sequence_schema.yml" "$D
 apply_rule "$SCRIPT_DIR/patches/1786433480_pgutil_openunique_database.yml" "$DIR/shared/dbutil/pgutil/db.go" 3
 apply_rule "$SCRIPT_DIR/patches/1786433485_pgutil_openunique_test_database.yml" "$DIR/shared/dbutil/pgutil/openunique_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433495_multinode_nodes_test_skip_pagination.yml" "$DIR/multinode/nodes/nodes_test.go" 1
+
+# maybe upstream
+git -C $DIR apply "$SCRIPT_DIR/patches/1786665610_satellitedb_testing_delete_all.patch"
+git -C $DIR apply "$SCRIPT_DIR/patches/1786665620_satellitedbtest_database_pool.patch"
+git -C $DIR apply "$SCRIPT_DIR/patches/1786665630_satellitedb_schema_reset_test.patch"
 
 gofmt -w "$DIR"

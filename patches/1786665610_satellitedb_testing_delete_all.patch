@@ -1,0 +1,231 @@
+satellite/satellitedb: add TestingDeleteAll for reusing test databases.
+
+PENDING UPSTREAM. Delete this patch once the change lands in storj upstream.
+This is not fork delta: it touches only test infrastructure, depends on no
+other patch in patch_sat, and benefits stock PostgreSQL and stock CockroachDB
+exactly as much as it benefits this fork.
+
+Adds TestingDeleteAll to the satellite.TestingDB interface, implemented as a
+thin wrapper over the dbx-generated DeleteAll plus a sequence rewind. It is the
+satellitedb counterpart of metabase.Adapter.TestingDeleteAll, which already
+exists in-tree at satellite/metabase/raw.go.
+
+Deleting every row from an already-migrated database costs ~50ms; creating and
+migrating a fresh one costs ~9s. That difference is what makes the database
+pool in the companion patch worthwhile.
+
+Three properties worth recording, all verified against the schema rather than
+assumed:
+
+  * dbx.DeleteAll issues DELETE against exactly the 55 tables in
+    satellitedb.dbx.pgx.sql - a 1:1 set match, nothing missing, nothing extra -
+    and being generated, it regenerates whenever the schema changes. No runtime
+    topological sort of pg_constraint is needed.
+  * Its order is foreign-key safe. Every child precedes its parent: api_key_tails
+    before api_keys, project_members and rest_api_keys before users, every
+    projects child before projects, stripecoinpayments_apply_balance_intents
+    before coinpayments_transactions.
+  * The versions table is created by the migration, not by dbx, so DeleteAll
+    structurally cannot touch it and the database stays reported at the latest
+    version. TestMigrateToLatest then finds it already migrated and does nothing
+    (satellite/satellitedb/migrate.go, the dbVersion != -1 check).
+
+DELETE is used rather than TRUNCATE deliberately. On CockroachDB, TRUNCATE is a
+descriptor swap that marks the old table for GC, so it is a schema change and
+schedules exactly the GC work this exists to avoid.
+
+Sequence rewind is dynamic rather than a hardcoded pair of setval calls, so it
+survives future migrations adding or removing bigserial columns. The
+information_schema query is the one already used by pgutil.QuerySchema.
+
+reset_test.go proves both premises against a live database.
+diff --git a/satellite/peer.go b/satellite/peer.go
+index 2c588be..60a0af1 100644
+--- a/satellite/peer.go
++++ b/satellite/peer.go
+@@ -171,6 +171,10 @@ type TestingDB interface {
+ 	Schema() []string
+ 	// TestMigrateToLatest initializes the database for testplanet.
+ 	TestMigrateToLatest(ctx context.Context) error
++	// TestingDeleteAll deletes all rows from all tables, leaving the schema and
++	// the migration version intact, so the database can be reused by another
++	// test instead of being dropped and recreated.
++	TestingDeleteAll(ctx context.Context) error
+ 	// ProductionMigration returns the primary migration.
+ 	ProductionMigration() *migrate.Migration
+ 	// TestMigration returns the migration used for tests.
+diff --git a/satellite/satellitedb/database.go b/satellite/satellitedb/database.go
+index eb8d453..ae3cda0 100644
+--- a/satellite/satellitedb/database.go
++++ b/satellite/satellitedb/database.go
+@@ -405,6 +405,57 @@ func (db *satelliteDBTesting) TestMigration() *migrate.Migration {
+ 	return db.satelliteDB.TestMigration()
+ }
+ 
++// TestingDeleteAll deletes all rows from every table in the dbx schema, leaving
++// the schema itself and the migration version intact, so that the database can
++// be recycled by another test rather than dropped and recreated.
++//
++// This mirrors metabase.Adapter.TestingDeleteAll.
++//
++// It deliberately uses DELETE and not TRUNCATE. On CockroachDB, TRUNCATE is a
++// descriptor swap that marks the old table for GC, so it is a schema change and
++// schedules exactly the GC work that recycling exists to avoid. On TiDB it bumps
++// the schema version. DELETE is plain DML on every backend.
++//
++// The versions table is created by the migration rather than by dbx, so
++// dbx.DeleteAll does not touch it and the database stays at the latest version.
++func (db *satelliteDBTesting) TestingDeleteAll(ctx context.Context) (err error) {
++	if _, err := dbx.DeleteAll(ctx, db.satelliteDB.DB); err != nil {
++		return Error.Wrap(err)
++	}
++	return Error.Wrap(db.testingResetSequences(ctx))
++}
++
++// testingResetSequences rewinds every sequence in the current schema. DELETE
++// does not reset them, so without this a recycled database keeps handing out
++// ever-climbing generated ids.
++func (db *satelliteDBTesting) testingResetSequences(ctx context.Context) (err error) {
++	rows, err := db.satelliteDB.DB.QueryContext(ctx,
++		"SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = CURRENT_SCHEMA")
++	if err != nil {
++		return err
++	}
++
++	var names []string
++	for rows.Next() {
++		var name string
++		if err := rows.Scan(&name); err != nil {
++			return errs.Combine(err, rows.Close())
++		}
++		names = append(names, name)
++	}
++	if err := errs.Combine(rows.Err(), rows.Close()); err != nil {
++		return err
++	}
++
++	for _, name := range names {
++		if _, err := db.satelliteDB.DB.ExecContext(ctx,
++			"SELECT setval($1::regclass, 1, false)", name); err != nil {
++			return errs.New("resetting sequence %q: %w", name, err)
++		}
++	}
++	return nil
++}
++
+ // Testing provides access to testing facilities. These should not be used in production code.
+ func (dbc *satelliteDBCollection) Testing() satellite.TestingDB {
+ 	return &satelliteDBCollectionTesting{satelliteDBCollection: dbc}
+@@ -445,6 +496,15 @@ func (dbc *satelliteDBCollectionTesting) TestMigrateToLatest(ctx context.Context
+ 	return eg.Err()
+ }
+ 
++// TestingDeleteAll deletes all data from every database in the collection.
++func (dbc *satelliteDBCollectionTesting) TestingDeleteAll(ctx context.Context) error {
++	var eg errs.Group
++	for _, db := range dbc.dbs {
++		eg.Add(db.Testing().TestingDeleteAll(ctx))
++	}
++	return eg.Err()
++}
++
+ // ProductionMigration returns the primary migration.
+ func (dbc *satelliteDBCollectionTesting) ProductionMigration() *migrate.Migration {
+ 	return dbc.getByName("").ProductionMigration()
+diff --git a/satellite/satellitedb/reset_test.go b/satellite/satellitedb/reset_test.go
+new file mode 100644
+index 0000000..0009722
+--- /dev/null
++++ b/satellite/satellitedb/reset_test.go
+@@ -0,0 +1,91 @@
++// Copyright (C) 2026 Storj Labs, Inc.
++// See LICENSE for copying information.
++
++package satellitedb_test
++
++import (
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++
++	"storj.io/common/testcontext"
++	"storj.io/common/testrand"
++	"storj.io/storj/satellite"
++	"storj.io/storj/satellite/console"
++	"storj.io/storj/satellite/satellitedb/satellitedbtest"
++)
++
++// TestTestingDeleteAllReuse proves the two premises the database-pool design
++// rests on:
++//
++//  1. dbx.DeleteAll clears every table without tripping a foreign key, with real
++//     data present, and leaves the versions row alone.
++//  2. TestMigrateToLatest is a no-op against an already-migrated database, so a
++//     recycled database is indistinguishable from a fresh one.
++func TestTestingDeleteAllReuse(t *testing.T) {
++	satellitedbtest.Run(t, func(ctx *testcontext.Context, t *testing.T, db satellite.DB) {
++		raw := db.Testing().RawDB()
++
++		count := func(table string) (n int) {
++			require.NoError(t, raw.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n))
++			return n
++		}
++
++		// Seed across the foreign key graph: project_members references both
++		// users and projects, so dbx.DeleteAll must delete it before either
++		// parent. This is the ordering that a naive delete loop gets wrong.
++		seed := func() {
++			projectID := testrand.UUID()
++			_, err := db.Console().Projects().Insert(ctx, &console.Project{ID: projectID})
++			require.NoError(t, err)
++
++			user, err := db.Console().Users().Insert(ctx, &console.User{
++				ID:           testrand.UUID(),
++				FullName:     "Alice",
++				ShortName:    "A",
++				Email:        "alice@mail.test",
++				PasswordHash: testrand.Bytes(8),
++			})
++			require.NoError(t, err)
++
++			_, err = db.Console().ProjectMembers().Insert(ctx, user.ID, projectID, console.RoleAdmin)
++			require.NoError(t, err)
++		}
++
++		seed()
++		require.Equal(t, 1, count("users"))
++		require.Equal(t, 1, count("projects"))
++		require.Equal(t, 1, count("project_members"))
++
++		var versionBefore int
++		require.NoError(t, raw.QueryRowContext(ctx, "SELECT max(version) FROM versions").Scan(&versionBefore))
++		t.Logf("versions before reset: %d", versionBefore)
++
++		// Premise 1.
++		start := time.Now()
++		require.NoError(t, db.Testing().TestingDeleteAll(ctx))
++		t.Logf("TestingDeleteAll took %v", time.Since(start))
++
++		require.Zero(t, count("users"))
++		require.Zero(t, count("projects"))
++		require.Zero(t, count("project_members"))
++
++		var versionAfter int
++		require.NoError(t, raw.QueryRowContext(ctx, "SELECT max(version) FROM versions").Scan(&versionAfter))
++		require.Equal(t, versionBefore, versionAfter, "reset must not disturb the migration version")
++
++		// Premise 2.
++		start = time.Now()
++		require.NoError(t, db.Testing().TestMigrateToLatest(ctx))
++		t.Logf("TestMigrateToLatest on a recycled db took %v", time.Since(start))
++
++		// And the database is genuinely usable again.
++		seed()
++		require.Equal(t, 1, count("users"))
++		require.Equal(t, 1, count("project_members"))
++
++		require.NoError(t, db.Testing().TestingDeleteAll(ctx))
++		require.Zero(t, count("users"))
++	})
++}
