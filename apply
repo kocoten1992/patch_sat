@@ -69,10 +69,11 @@ for commit in "${commits[@]}"; do
     fi
 done
 
-# patch
+# optional stripe
 apply_rule "$SCRIPT_DIR/patches/1783440418_remove_stripe_client.yml" "$DIR/satellite/payments/stripe/mud.go" 1
 apply_rule "$SCRIPT_DIR/patches/1783432229_optional_stripe.yml" "$DIR/satellite/mud.go" 1
 
+# hijack branding
 BRANDING_NAME=$(yq '."console"."single-white-label"."name"' "$SCRIPT_DIR/config.yaml")
 BRANDING_NAME=${BRANDING_NAME#\"}
 BRANDING_NAME=${BRANDING_NAME%\"}
@@ -82,6 +83,14 @@ env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
     > /tmp/branding-rule.yml
 
 apply_rule /tmp/branding-rule.yml "$DIR" 2
+
+env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
+    < "$SCRIPT_DIR/patches/1783446590_hijack_server_branding_name.yml.template" \
+    > /tmp/server-branding-rule.yml
+
+apply_rule /tmp/server-branding-rule.yml "$DIR/satellite/console/consoleweb" 6
+apply_rule /tmp/server-branding-rule.yml "$DIR/satellite/peer.go" 1
+
 apply_rule "$SCRIPT_DIR/patches/1784299063_crdb_use_skip_locked.yml" "$DIR/satellite/satellitedb/verifyqueue.go" 1
 apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/testsuite" 1
 apply_rule "$SCRIPT_DIR/patches/1784396915_merge_bucket_bandwidth_rollups_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1

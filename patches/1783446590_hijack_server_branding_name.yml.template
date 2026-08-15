@@ -1,0 +1,7 @@
+id: hijack_server_branding_name
+language: Go
+
+rule:
+  pattern: '"Storj"'
+
+fix: '"${BRANDING_NAME}"'
