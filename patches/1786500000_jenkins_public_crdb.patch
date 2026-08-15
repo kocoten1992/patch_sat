@@ -1,0 +1,48 @@
+--- a/Jenkinsfile.public
++++ b/Jenkinsfile.public
+@@ -2,7 +2,7 @@
+     agent {
+         docker {
+             label 'main'
+-            image 'storjlabs/ci:latest'
++            image 'kocoten1992/storkspace-ci:latest'
+             alwaysPull true
+             args '-u root:root --cap-add SYS_PTRACE -v "/cache/gomod":/go/pkg/mod -v /cache/golangci-lint:/root/.cache/golangci-lint -v /cache/gobuild:/root/.cache/go-build -v /cache/gobenchmarks:/root/.cache/go-build-benchmarks -v /cache/gomain:/root/.cache/go-build-main -v "/cache/npm":/npm'
+         }
+@@ -70,6 +70,9 @@
+                 stage('db') {
+                     steps {
+                         sh 'service postgresql start'
++
++                        // http-addr is outside the 1024-10000 range that use-ports claims later.
++                        sh 'cockroach start-single-node --insecure --store=/tmp/crdb --listen-addr=localhost:26257 --http-addr=localhost:28080 --background'
+                     }
+                 }
+             }
+@@ -113,17 +116,24 @@
+             environment {
+                 STORJ_TEST_HOST = '127.0.0.20;127.0.0.21;127.0.0.22;127.0.0.23;127.0.0.24;127.0.0.25'
+ 
++                // This fork runs CockroachDB through the postgres:// code path
++                // (see patch_sat/patches/1786433*). STORJ_TEST_COCKROACH stays
++                // omitted so the cockroach:// path is not exercised.
+                 STORJ_TEST_COCKROACH = 'omit'
+-                STORJ_TEST_POSTGRES = 'postgres://postgres@localhost/teststorj?sslmode=disable'
++                STORJ_TEST_POSTGRES = 'postgres://root@localhost:26257/teststorj?sslmode=disable'
+                 STORJ_TEST_TIDB = 'omit'
+ 
++                // Reuse test databases instead of dropping them; without this
++                // CockroachDB drowns in schema-change GC jobs.
++                STORJ_TEST_DB_POOL = 'true'
++
+                 STORJ_TEST_LOG_LEVEL = 'info'
+                 STORJ_HASHSTORE_TABLE_DEFAULT_KIND = 'memtbl'
+ 
+                 COVERFLAGS = "${ env.BRANCH_NAME == 'main' ? '-coverprofile=.build/coverprofile -coverpkg=./...' : ''}"
+             }
+             steps {
+-                sh 'psql -U postgres -c \'create database teststorj;\''
++                sh 'cockroach sql --insecure --host=localhost:26257 -e \'create database teststorj;\''
+                 sh 'use-ports -from 1024 -to 10000 &'
+ 
+                 sh 'go test -parallel 9 -p 12 -vet=off $COVERFLAGS -timeout 60m -json -race ./... 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'

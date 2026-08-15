@@ -112,6 +112,9 @@ apply_rule "$SCRIPT_DIR/patches/1786433480_pgutil_openunique_database.yml" "$DIR
 apply_rule "$SCRIPT_DIR/patches/1786433485_pgutil_openunique_test_database.yml" "$DIR/shared/dbutil/pgutil/openunique_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433495_multinode_nodes_test_skip_pagination.yml" "$DIR/multinode/nodes/nodes_test.go" 1
 
+# jenkinsfile.public
+git -C $DIR apply "$SCRIPT_DIR/patches/1786500000_jenkins_public_crdb.patch"
+
 # maybe upstream
 git -C $DIR apply "$SCRIPT_DIR/patches/1786665610_satellitedb_testing_delete_all.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1786665620_satellitedbtest_database_pool.patch"
