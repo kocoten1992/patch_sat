@@ -1,0 +1,41 @@
+# Point metabase's Postgres branch at the fork-local pgretry driver (see
+# 1786946000_pgretry_driver.patch) so that non-transactional statements get
+# client-side conflict retries.
+#
+# Rationale is the same as for the "cockroach" driver: tagsql adds no retry,
+# PostgresAdapter.WithTx already covers transactions via txutil.WithTx, but the
+# adapter's ~66 direct p.db calls run outside any transaction and get nothing
+# under bare "pgx". Unlike "cockroach", pgretry lives in this tree, so upstream
+# dropping cockroachutil cannot break it.
+#
+# satellite/satellitedb needs no equivalent: dbx's pgxImpl.shouldRetry calls
+# retrydb.ShouldRetry(err) and ignores the driver name, so the "pgx" dialect
+# already retries.
+#
+# The second rule registers the driver in metabase itself. Binaries that link
+# metabase without satellitedb — cmd/tools/metabase-verify, segment-verify —
+# would otherwise fail at runtime with `sql: unknown driver "pgretry"`.
+#
+# Expected match count: 2
+
+id: metabase-postgres-pgretry-driver
+language: Go
+rule:
+  pattern:
+    context: 'func f() { rawdb, err := tagsql.Open(ctx, "pgx", connstr, config.FlightRecorder) }'
+    selector: call_expression
+fix: 'tagsql.Open(ctx, "pgretry", connstr, config.FlightRecorder)'
+
+---
+# Sorted before pgutil to keep the storj.io group in gci order.
+id: metabase-register-pgretry-driver
+language: Go
+rule:
+  kind: import_spec
+  regex: '^"storj\.io/storj/shared/dbutil/pgutil"$'
+  inside:
+    stopBy: end
+    kind: import_declaration
+fix: |-
+  _ "storj.io/storj/shared/dbutil/pgretry" // registers pgretry as a tagsql driver.
+  	"storj.io/storj/shared/dbutil/pgutil"

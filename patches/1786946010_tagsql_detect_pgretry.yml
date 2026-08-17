@@ -1,0 +1,28 @@
+# tagsql.Wrap/WrapWithRecorder call DetectContextSupport and *panic* on an
+# unrecognised driver type, so a newly registered driver must be listed here
+# before anything can open with it.
+#
+# pgretry.Driver embeds stdlib.Driver and forwards every context method, so it
+# has the same support level as pgx/v5 itself: SupportAll.
+#
+# Expected match count: 1
+
+id: tagsql-detect-pgretry
+language: Go
+rule:
+  pattern: switch { $$$CASES }
+  inside:
+    stopBy: end
+    any:
+      - pattern:
+          context: "func DetectContextSupport(db *sql.DB) (ContextSupport, error) { $$$ }"
+          selector: function_declaration
+  # self-disabling: skip if the pgretry case is already present
+  not:
+    regex: 'shared/dbutil/pgretry'
+
+fix: |-
+  switch {
+  	case typ.PkgPath() == "storj.io/storj/shared/dbutil/pgretry" && typ.Name() == "Driver":
+  		return SupportAll, nil
+  	$$$CASES	}

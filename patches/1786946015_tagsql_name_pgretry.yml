@@ -1,0 +1,42 @@
+# sqlDB.Name() is a *second*, independent driver switch, separate from
+# DetectContextSupport: it matches on fmt.Sprintf("%T", driver) substrings
+# rather than reflect PkgPath, and it panics on no match.
+#
+#   panic: unknown database driver: *pgretry.Driver
+#
+# It is reached from BeginTx (db.go:195) and Conn (db.go:227), so any
+# transaction blows up — which is why this surfaces during migration, not at
+# Open. The "cockroach" driver never tripped this because *cockroachutil.Driver
+# happens to contain the substring "cockroach".
+#
+# pgretry must report PostgresName, not CockroachName. Name() gates real
+# behaviour — satellitedb/migrate.go branches on db.Name() == CockroachName in
+# several places — and the fork's Postgres path already reports "postgres"
+# today (satellitedb opens with "pgx", whose *stdlib.Driver hits the
+# "stdlib.Driver" case below and returns PostgresName). Returning CockroachName
+# here would silently switch metabase onto migration paths the rest of the fork
+# does not take.
+#
+# Placed as the first case so it wins before the looser substring matches.
+#
+# Expected match count: 1
+
+id: tagsql-name-pgretry
+language: Go
+rule:
+  pattern: switch { $$$CASES }
+  inside:
+    stopBy: end
+    any:
+      - pattern:
+          context: "func (s *sqlDB) Name() string { $$$ }"
+          selector: method_declaration
+  # self-disabling: skip if the pgretry case is already present
+  not:
+    regex: 'pgretry'
+
+fix: |-
+  switch {
+  	case strings.Contains(driverType, "pgretry.Driver"):
+  		return PostgresName
+  	$$$CASES	}
