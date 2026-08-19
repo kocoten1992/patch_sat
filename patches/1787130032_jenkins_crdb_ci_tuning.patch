@@ -1,0 +1,53 @@
+diff --git a/Jenkinsfile.public b/Jenkinsfile.public
+index ab0d3e6..192ead9 100644
+--- a/Jenkinsfile.public
++++ b/Jenkinsfile.public
+@@ -82,16 +82,22 @@ pipeline {
+ 
+                             JENKINS_NODE_COOKIE=dontKillMe nohup cockroach start-single-node --insecure --store=/tmp/crdb --listen-addr=localhost:26257 --http-addr=localhost:28080 > /dev/null 2>&1 &
+ 
++                            ready=0
+                             for _ in $(seq 1 20); do
+                                 if cockroach sql --insecure --host=localhost:26257 -e 'SELECT 1' > /dev/null 2>&1; then
+                                     cockroach version
+-                                    exit 0
++                                    ready=1
++                                    break
+                                 fi
+                                 sleep 1
+                             done
+ 
+-                            echo 'cockroach did not start accepting connections in time' >&2
+-                            exit 1
++                            if [ "$ready" -ne 1 ]; then
++                                echo 'cockroach did not start accepting connections in time' >&2
++                                exit 1
++                            fi
++
++                            cockroach sql --insecure --host=localhost:26257 -f scripts/cockroach-ci-tuning.sql
+                         '''
+                     }
+                 }
+@@ -212,6 +218,8 @@ pipeline {
+                 STORJ_TEST_POSTGRES = 'postgres://root@localhost:26257/benchstorj?sslmode=disable'
+                 STORJ_TEST_TIDB = 'omit'
+ 
++                STORJ_TEST_DB_POOL = 'true'
++
+                 GOCACHE = '/root/.cache/go-build-benchmarks'
+             }
+             steps {
+diff --git a/scripts/cockroach-ci-tuning.sql b/scripts/cockroach-ci-tuning.sql
+new file mode 100644
+index 0000000..11b2b4a
+--- /dev/null
++++ b/scripts/cockroach-ci-tuning.sql
+@@ -0,0 +1,8 @@
++ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
++SET CLUSTER SETTING jobs.registry.interval.gc = '2m';
++SET CLUSTER SETTING jobs.retention_time = '10m';
++SET CLUSTER SETTING sql.gc_job.wait_for_gc.interval = '30s';
++SET CLUSTER SETTING kv.mvcc_gc.queue_interval = '0s';
++SET CLUSTER SETTING kv.range_merge.queue_interval = '0s';
++SET CLUSTER SETTING sql.schema.approx_max_object_count = 500000;
++SET CLUSTER SETTING sql.stats.automatic_collection.enabled = false;
