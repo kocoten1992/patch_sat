@@ -1,0 +1,46 @@
+# satellite/metabase/stats_test.go skips TestCountSegments entirely (the outer
+# t.Skip) and, inside metabasetest.Run, gates it on dbutil.TiDB. Apply after
+# 1787049980_postgres_adapter_crdb_count_segments.yml, which gives
+# PostgresAdapter a real CountSegments body; without that patch this test will
+# fail rather than skip.
+#
+# Both skips are replaced by a single TiDB-only skip, so every other adapter
+# runs the test. satellitedbtest.Databases only ever yields Postgres, Cockroach
+# and TiDB, so a TiDB denylist covers the same ground as an allowlist while
+# giving any future adapter coverage by default.
+#
+# TiDB stays skipped: the test calls db.Now() and reads AS OF TIMESTAMP at that
+# exact instant, i.e. a stale read with zero staleness. Per the tidbMinAsOfInterval
+# comment in shared/dbutil/impl.go, NOW() comes from the tidb-server's local
+# clock rather than the TSO, so a staleness below the inter-node clock skew can
+# name a timestamp in the TSO's future and be rejected. That is the "db timing"
+# the blanket skip refers to; MinAsOfSystemInterval guards AsOfSystemInterval
+# but not the concrete-timestamp AsOfSystemTime path this test uses.
+#
+# The replacement skip deliberately does NOT reuse the blanket skip's message:
+# the first rule matches that string anywhere in the file, so reusing it would
+# make a second apply run delete the new gate.
+#
+# Both rules are self-disabling.
+#
+# Expected total match count: 2
+
+id: stats-test-count-segments-drop-outer-skip
+language: Go
+rule:
+  pattern:
+    context: 'func TestCountSegments(t *testing.T) { t.Skip("TiDB broken at the moment due to db timing.") }'
+    selector: expression_statement
+fix: ''
+
+---
+id: stats-test-count-segments-invert-inner-skip
+language: Go
+rule:
+  pattern:
+    context: 'func f() { if db.Implementation() != dbutil.TiDB { t.Skip("implemented only for TiDB") } }'
+    selector: if_statement
+fix: |-
+  if db.Implementation() == dbutil.TiDB {
+  		t.Skip("TiDB reads AS OF TIMESTAMP at zero staleness here, which is unreliable; see tidbMinAsOfInterval")
+  	}

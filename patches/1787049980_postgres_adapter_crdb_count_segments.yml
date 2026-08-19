@@ -1,0 +1,54 @@
+# With a postgres:// URL, metabase.Open builds a PostgresAdapter, so
+# PostgresAdapter.CountSegments is what every satellite process actually calls.
+# Upstream it is a stub returning "not implemented", which makes
+# rangedloop.SegmentsCountValidation fail in Start() before it scans anything,
+# and leaves metabase.TestCountSegments unrunnable outside TiDB.
+#
+# CockroachDB can serve this query: it is a plain COUNT(1) plus an optional
+# AS OF SYSTEM TIME clause, and 1786433401_add_postgres_aost.yml already taught
+# dbutil.Postgres to emit the CockroachDB spelling of that clause. So the stub
+# is replaced with the same shape as the TiDB body, except the AOST clause is
+# built from p.impl rather than a hardcoded implementation, so CockroachAdapter
+# (which embeds PostgresAdapter and does not override CountSegments) keeps
+# emitting the Cockroach form when the URL scheme really is cockroach://.
+#
+# Implementation.AsOfSystemTime already returns "" for a zero time, so the
+# explicit IsZero check the TiDB body carries is redundant here and is dropped.
+#
+# Removing the stub leaves "github.com/zeebo/errs" unused in this file, and
+# gofmt does not prune unused imports, so the second rule rewrites the import
+# block. Its regex pins the exact current block, so if upstream adds or removes
+# an import here the rule stops matching and apply fails on the count check
+# rather than silently dropping the new import.
+#
+# Both rules are self-disabling.
+#
+# Expected total match count: 2
+
+id: postgres-adapter-crdb-count-segments
+language: Go
+rule:
+  pattern:
+    context: "func (p *PostgresAdapter) CountSegments(ctx context.Context, checkTimestamp time.Time) (result int64, err error) { $$$ }"
+    selector: method_declaration
+  # self-disabling: skip once the real body is in place
+  regex: 'not implemented'
+fix: |-
+  func (p *PostgresAdapter) CountSegments(ctx context.Context, checkTimestamp time.Time) (result int64, err error) {
+  	defer mon.Task()(&ctx)(&err)
+
+  	err = p.db.QueryRowContext(ctx, `SELECT count(1) FROM segments`+p.impl.AsOfSystemTime(checkTimestamp)).Scan(&result)
+  	if err != nil {
+  		return 0, Error.Wrap(err)
+  	}
+  	return result, nil
+  }
+
+---
+# self-disabling: once the import spec is gone there is nothing left to match
+id: postgres-adapter-crdb-count-segments-drop-errs-import
+language: Go
+rule:
+  kind: import_spec
+  regex: '^"github\.com/zeebo/errs"$'
+fix: ''
