@@ -140,4 +140,8 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1786665610_satellitedb_testing_delete_all
 git -C $DIR apply "$SCRIPT_DIR/patches/1786665620_satellitedbtest_database_pool.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1786665630_satellitedb_schema_reset_test.patch"
 
+# flaky test (database pool)
+git -C $DIR apply "$SCRIPT_DIR/patches/1787184000_buckets_test_hoist_email.patch"
+git -C $DIR apply "$SCRIPT_DIR/patches/1787184005_objectbrowserpage_await_tohavecount.patch"
+
 gofmt -w "$DIR"

@@ -1,0 +1,50 @@
+ObjectBrowserPage: await the locator assertions.
+
+expect(locator).toHaveCount() returns a Promise. Two call sites dropped it, so
+the assertion polled in the background while the test kept running.
+
+checkSingleBreadcrumb() is the damaging one. In "Folder double-click
+disallowed" the sequence is:
+
+    await objectBrowserPage.doubleClickFolder(folderName);
+    await objectBrowserPage.checkSingleBreadcrumb(folderName);   // not awaited
+    await objectBrowserPage.clickBreadcrumb(1);                  // runs immediately
+
+The double-click routes into the folder asynchronously (onFileClick ->
+withLoading -> router.push, then a list call over the network). Because the
+assertion was not awaited, clickBreadcrumb(1) fired concurrently and pushed the
+route back to the bucket root, so the 'testdata' crumb never settled. The
+background poll then reported, after the test body had moved on:
+
+    Expected: 1
+    Received: 0
+    4 x locator resolved to 0 elements
+
+Timing-dependent, which is why one describe block went flaky and the other
+failed through all retries.
+
+expectItems() had the same unawaited toHaveCount, which silently weakened the
+row-count check.
+
+diff --git a/testsuite/playwright-ui/pageFactory/pageRepository/ObjectBrowserPage.ts b/testsuite/playwright-ui/pageFactory/pageRepository/ObjectBrowserPage.ts
+index e992bd5..68c3262 100644
+--- a/testsuite/playwright-ui/pageFactory/pageRepository/ObjectBrowserPage.ts
++++ b/testsuite/playwright-ui/pageFactory/pageRepository/ObjectBrowserPage.ts
+@@ -36,7 +36,7 @@ export class ObjectBrowserPage {
+         for (const name of names) {
+             await expect(new ItemLocator(this.page, name).getRow()).toBeVisible();
+         }
+-        expect(this.page.locator(ObjectBrowserPageObjects.TABLE_ROW_SELECTOR)).toHaveCount(names.length);
++        await expect(this.page.locator(ObjectBrowserPageObjects.TABLE_ROW_SELECTOR)).toHaveCount(names.length);
+     }
+ 
+     async uploadFolder(folderPath: string, folderName: string): Promise<void> {
+@@ -60,7 +60,7 @@ export class ObjectBrowserPage {
+ 
+     async checkSingleBreadcrumb(name: string): Promise<void> {
+         const items = this.page.locator(ObjectBrowserPageObjects.BREADCRUMB_CLASS).getByText(name, { exact: true });
+-        expect(items).toHaveCount(1);
++        await expect(items).toHaveCount(1);
+     }
+ 
+     async closePreview(): Promise<void> {

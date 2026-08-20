@@ -1,0 +1,50 @@
+buckets.test.ts: hoist the test account out of beforeEach.
+
+`userCreated` gates signup so the account is created exactly once per worker
+process, but `email` was generated fresh on every beforeEach invocation. The
+first test in a worker signed up and logged in fine; every subsequent test in
+that same worker called loginByCreds() with a brand-new UUID address that had
+never been registered.
+
+loginByCreds() does not assert that login succeeded, so the run stayed on
+/login and the next call, navigationMenu.switchPassphrase(), blocked on
+PROJECT_SELECT_XPATH until the 30s test timeout fired inside the hook:
+
+    Test timeout of 30000ms exceeded while running "beforeEach" hook.
+    waiting for locator('//div[div[div[text()='Project']]]')
+
+Retries start a fresh worker, so userCreated is false again and the retry
+passes -- the failures surface as "flaky" rather than "failed".
+
+Every other test file in tests/default already scopes email to the describe
+closure; buckets.test.ts was the outlier.
+
+diff --git a/testsuite/playwright-ui/tests/default/buckets.test.ts b/testsuite/playwright-ui/tests/default/buckets.test.ts
+index bfc02a2..776c7d8 100644
+--- a/testsuite/playwright-ui/tests/default/buckets.test.ts
++++ b/testsuite/playwright-ui/tests/default/buckets.test.ts
+@@ -7,6 +7,13 @@ import { BucketsPageObjects } from '@objects/BucketsPageObjects';
+ import { createAndOnboardUser, SignUpButtonLabel } from '../common';
+ 
+ test.describe('buckets', () => {
++    // These must live in the describe closure, not inside beforeEach: the user is
++    // only signed up once (userCreated), so every later test in the same worker has
++    // to log in with that same address. Regenerating it per-test made every test
++    // after the first log in with an account that was never registered.
++    const email = `${uuidv4()}@test.test`;
++    const password = 'password';
++    const passphrase = '1';
+     let userCreated = false;
+ 
+     test.beforeEach(async ({
+@@ -14,10 +21,6 @@ test.describe('buckets', () => {
+         loginPage,
+         navigationMenu,
+     }) => {
+-        const email = `${uuidv4()}@test.test`;
+-        const password = 'password';
+-        const passphrase = '1';
+-
+         if (!userCreated) {
+             await createAndOnboardUser({
+                 signupPage,
