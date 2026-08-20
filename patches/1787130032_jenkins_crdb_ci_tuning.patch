@@ -1,5 +1,5 @@
 diff --git a/Jenkinsfile.public b/Jenkinsfile.public
-index ab0d3e6..192ead9 100644
+index ab0d3e6..e77f391 100644
 --- a/Jenkinsfile.public
 +++ b/Jenkinsfile.public
 @@ -82,16 +82,22 @@ pipeline {
@@ -37,17 +37,32 @@ index ab0d3e6..192ead9 100644
                  GOCACHE = '/root/.cache/go-build-benchmarks'
              }
              steps {
+@@ -251,9 +259,12 @@ pipeline {
+                         STORJ_SIM_POSTGRES = 'postgres://root@localhost:26257/teststorj3?sslmode=disable'
+                         STORJ_MIGRATION_DB = 'postgres://root@localhost:26257/teststorj3?sslmode=disable&options=--search_path=satellite/0/meta'
+                         STORJ_CONSOLE_SIGNUP_ACTIVATION_CODE_ENABLED = 'false'
++
++                        STORJ_TEST_DB_POOL = 'true'
+                     }
+ 
+                     steps {
++                        sh 'cockroach sql --insecure --host=localhost:26257 -f scripts/cockroach-ci-tuning.sql'
+                         sh 'cockroach sql --insecure --host=localhost:26257 -e \'create database if not exists teststorj3;\''
+                         sh 'make test-sim-backwards-compatible'
+                     }
 diff --git a/scripts/cockroach-ci-tuning.sql b/scripts/cockroach-ci-tuning.sql
 new file mode 100644
-index 0000000..11b2b4a
+index 0000000..9fd18a6
 --- /dev/null
 +++ b/scripts/cockroach-ci-tuning.sql
 @@ -0,0 +1,8 @@
 +ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
++ALTER ROLE ALL SET autocommit_before_ddl = false;
 +SET CLUSTER SETTING jobs.registry.interval.gc = '2m';
 +SET CLUSTER SETTING jobs.retention_time = '10m';
-+SET CLUSTER SETTING sql.gc_job.wait_for_gc.interval = '30s';
 +SET CLUSTER SETTING kv.mvcc_gc.queue_interval = '0s';
 +SET CLUSTER SETTING kv.range_merge.queue_interval = '0s';
++SET CLUSTER SETTING sql.defaults.create_table_with_schema_locked = false;
++SET CLUSTER SETTING sql.gc_job.wait_for_gc.interval = '30s';
 +SET CLUSTER SETTING sql.schema.approx_max_object_count = 500000;
 +SET CLUSTER SETTING sql.stats.automatic_collection.enabled = false;
