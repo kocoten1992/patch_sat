@@ -1,0 +1,55 @@
+diff --git a/testsuite/backward-compatibility/start-sim.sh b/testsuite/backward-compatibility/start-sim.sh
+index 1576f95..348dc02 100755
+--- a/testsuite/backward-compatibility/start-sim.sh
++++ b/testsuite/backward-compatibility/start-sim.sh
+@@ -74,6 +74,50 @@ latestReleaseCommit=$(git rev-list -n1 $latestReleaseTag)
+ echo "Checking out latest release tag: $latestReleaseTag"
+ git worktree add -f "$RELEASE_DIR" "$latestReleaseCommit"
+ 
++# The release worktree is a pristine checkout of the release tag, so none of the
++# patch_sat CockroachDB-compatibility rewrites are present in it. This fork runs
++# CockroachDB behind a postgres:// URL, which means db.Name() is "postgres" and
++# the release satellite takes the PostgreSQL branch of every migration step --
++# including the ones upstream already knows CockroachDB cannot execute.
++#
++# Rewrite the offending statements in place. Each rewrite is optional: if the
++# release tag predates the migration, the pattern simply is not there.
++crdb_compat_release_migrations() {
++    local file="$RELEASE_DIR/satellite/satellitedb/migrate.go"
++
++    if [ ! -f "$file" ]; then
++        echo "crdb-compat: $file not found, skipping" >&2
++        return 0
++    fi
++
++    # v227 / v244: CockroachDB requires DROP PRIMARY KEY and ADD PRIMARY KEY to
++    # be subcommands of a single ALTER TABLE rather than two statements.
++    perl -0777 -pi -e '
++        s/ALTER TABLE bucket_bandwidth_rollups DROP CONSTRAINT bucket_bandwidth_rollups_pk;\s*ALTER TABLE bucket_bandwidth_rollups ADD CONSTRAINT/ALTER TABLE bucket_bandwidth_rollups DROP CONSTRAINT bucket_bandwidth_rollups_pk, ADD CONSTRAINT/s;
++        s/ALTER TABLE bucket_metainfos DROP CONSTRAINT bucket_metainfos_pkey;\s*ALTER TABLE bucket_metainfos ADD CONSTRAINT/ALTER TABLE bucket_metainfos DROP CONSTRAINT bucket_metainfos_pkey, ADD CONSTRAINT/s;
++    ' "$file"
++
++    # v243: CockroachDB cannot drop an index-backed UNIQUE constraint with
++    # ALTER TABLE DROP CONSTRAINT; it needs DROP INDEX ... CASCADE. This is what
++    # the tagsql.CockroachName branch of the same step already does.
++    perl -0777 -pi -e '
++        s/ALTER TABLE bucket_metainfos DROP CONSTRAINT IF EXISTS bucket_metainfos_project_id_name_key;/DROP INDEX IF EXISTS bucket_metainfos_project_id_name_key CASCADE/;
++    ' "$file"
++
++    # Note: v142 also drops an index-backed UNIQUE constraint this way, but it
++    # uses db.ExecContext rather than tx.ExecContext, so it runs in an implicit
++    # transaction where CockroachDB accepts it. Leave that one alone.
++    local residual='DROP CONSTRAINT (bucket_bandwidth_rollups_pk|bucket_metainfos_pkey|IF EXISTS bucket_metainfos_project_id_name_key);'
++    if grep -qE "$residual" "$file"; then
++        echo "crdb-compat: incompatible DROP CONSTRAINT still present in $file" >&2
++        grep -nE "$residual" "$file" >&2
++        return 1
++    fi
++
++    echo "crdb-compat: rewrote release migrations in $file"
++}
++crdb_compat_release_migrations
++
+ # delete this file that forces production config settings
+ rm -f "$RELEASE_DIR"/internal/version/release.go
+ 
