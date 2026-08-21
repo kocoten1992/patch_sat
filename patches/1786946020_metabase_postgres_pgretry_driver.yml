@@ -1,7 +1,3 @@
-# Point metabase's Postgres branch at the fork-local pgretry driver (see
-# 1786946000_pgretry_driver.patch) so that non-transactional statements get
-# client-side conflict retries.
-#
 # Rationale is the same as for the "cockroach" driver: tagsql adds no retry,
 # PostgresAdapter.WithTx already covers transactions via txutil.WithTx, but the
 # adapter's ~66 direct p.db calls run outside any transaction and get nothing

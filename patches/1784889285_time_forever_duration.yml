@@ -1,3 +1,5 @@
+# Expected total match count: 2
+
 id: add-forever-duration
 language: TypeScript
 
@@ -21,3 +23,25 @@ rule:
 fix: |-
   static YEAR_1 = new Duration($NS);
   static FOREVER = new Duration(Duration.YEAR_1.nanoseconds * 100)
+
+---
+
+id: forever-short-string
+language: TypeScript
+
+rule:
+  all:
+    - pattern: let numberPart = this.seconds;
+    # self-disabling: skip if the FOREVER branch is already present
+    - not:
+        inside:
+          kind: statement_block
+          has:
+            stopBy: neighbor
+            pattern: if (this.nanoseconds === Duration.FOREVER.nanoseconds) { $$$BODY }
+
+fix: |-
+  if (this.nanoseconds === Duration.FOREVER.nanoseconds) {
+      return 'Forever';
+  }
+  let numberPart = this.seconds;

@@ -91,33 +91,22 @@ env BRANDING_NAME="$BRANDING_NAME" envsubst '${BRANDING_NAME}' \
 apply_rule /tmp/server-branding-rule.yml "$DIR/satellite/console/consoleweb" 6
 apply_rule /tmp/server-branding-rule.yml "$DIR/satellite/peer.go" 1
 
-apply_rule "$SCRIPT_DIR/patches/1784363774_update_crdb_image_latest.yml" "$DIR/testsuite" 1
-apply_rule "$SCRIPT_DIR/patches/1784396915_merge_bucket_bandwidth_rollups_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
-apply_rule "$SCRIPT_DIR/patches/1784399045_merge_bucket_bandwidth_metainfos_pk.yml" "$DIR/satellite/satellitedb/migrate.go" 1
-apply_rule "$SCRIPT_DIR/patches/1787270000_migrate_v243_drop_index_cascade.yml" "$DIR/satellite/satellitedb/migrate.go" 1
+apply_rule "$SCRIPT_DIR/patches/1784396915_migrate_crdb_fixups.yml" "$DIR/satellite/satellitedb/migrate.go" 3
 git -C $DIR apply "$SCRIPT_DIR/patches/1787270010_backcompat_crdb_release_worktree.patch"
 apply_comby_rule "$SCRIPT_DIR/patches/1784884786_hide_remember_me" "$DIR/web/satellite/src/views/Login.vue" 1
-apply_rule "$SCRIPT_DIR/patches/1784889285_add_forever_duration.yml" "$DIR/web/satellite/src/utils/time.ts" 1
-apply_rule "$SCRIPT_DIR/patches/1784889338_add_forever_short_string.yml" "$DIR/web/satellite/src/utils/time.ts" 1
+apply_rule "$SCRIPT_DIR/patches/1784889285_time_forever_duration.yml" "$DIR/web/satellite/src/utils/time.ts" 2
 apply_comby_rule "$SCRIPT_DIR/patches/1784889388_session_timeout_long_options" "$DIR/web/satellite/src/components/dialogs/SetSessionTimeoutDialog.vue" 1
 git -C $DIR apply "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domains.patch"
-git -C $DIR apply "$SCRIPT_DIR/patches/1785984803_vite_checker_cause_ci_hang.patch"
 
 # patch postgres to use cockroachdb feature
-apply_rule "$SCRIPT_DIR/patches/1786433401_add_postgres_aost.yml" "$DIR/shared/dbutil/impl.go" 1
-apply_rule "$SCRIPT_DIR/patches/1786433405_add_postgres_aost_bounded.yml" "$DIR/shared/dbutil/impl.go" 1
-apply_rule "$SCRIPT_DIR/patches/1786433410_add_postgres_aost_interval.yml" "$DIR/shared/dbutil/impl.go" 1
-apply_rule "$SCRIPT_DIR/patches/1786433415_add_postgres_aost_interval_bounded.yml" "$DIR/shared/dbutil/impl.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433401_postgres_aost_impl.yml" "$DIR/shared/dbutil/impl.go" 4
 apply_rule "$SCRIPT_DIR/patches/1786433420_impl_test_postgres_aost.yml" "$DIR/shared/dbutil/impl_test.go" 11
 apply_rule "$SCRIPT_DIR/patches/1786433430_loop_test_postgres_fixed_read_timestamp.yml" "$DIR/satellite/metabase/loop_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433435_pgutil_query_test_crdb_expectations.yml" "$DIR/shared/dbutil/pgutil/query_test.go" 2
-apply_rule "$SCRIPT_DIR/patches/1786433425_pgutil_fk_schema_qualified.yml" "$DIR/shared/dbutil/pgutil/query.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433440_migrate_test_crdb_concurrency.yml" "$DIR/satellite/satellitedb/migrate_test.go" 1
-apply_rule "$SCRIPT_DIR/patches/1786433450_postgres_adapter_crdb_table_stats.yml" "$DIR/satellite/metabase/stats.go" 2
-apply_rule "$SCRIPT_DIR/patches/1786433455_stats_test_postgres.yml" "$DIR/satellite/metabase/stats_test.go" 2
-apply_rule "$SCRIPT_DIR/patches/1786433465_postgres_adapter_crdb_delete_cte.yml" "$DIR/satellite/metabase/delete_bucket.go" 1
+apply_rule "$SCRIPT_DIR/patches/1786433450_metabase_stats_crdb.yml" "$DIR/satellite/metabase/stats.go" 4
+apply_rule "$SCRIPT_DIR/patches/1786433455_metabase_stats_test_crdb.yml" "$DIR/satellite/metabase/stats_test.go" 4
 apply_rule "$SCRIPT_DIR/patches/1786433470_postgres_sha256_hex_cas.yml" "$DIR/satellite/metabase/update.go" 2
-apply_rule "$SCRIPT_DIR/patches/1786433475_pgutil_strip_sequence_schema.yml" "$DIR/shared/dbutil/pgutil/query.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433480_pgutil_openunique_database.yml" "$DIR/shared/dbutil/pgutil/db.go" 3
 apply_rule "$SCRIPT_DIR/patches/1786433485_pgutil_openunique_test_database.yml" "$DIR/shared/dbutil/pgutil/openunique_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433495_multinode_nodes_test_skip_pagination.yml" "$DIR/multinode/nodes/nodes_test.go" 1
@@ -126,16 +115,12 @@ apply_rule "$SCRIPT_DIR/patches/1786946010_tagsql_detect_pgretry.yml" "$DIR/shar
 apply_rule "$SCRIPT_DIR/patches/1786946015_tagsql_name_pgretry.yml" "$DIR/shared/tagsql/db.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786946020_metabase_postgres_pgretry_driver.yml" "$DIR/satellite/metabase/db.go" 2
 
-# enable postgres database skip test
-apply_rule "$SCRIPT_DIR/patches/1787049980_postgres_adapter_crdb_count_segments.yml" "$DIR/satellite/metabase/stats.go" 2
-apply_rule "$SCRIPT_DIR/patches/1787049985_stats_test_count_segments_postgres.yml" "$DIR/satellite/metabase/stats_test.go" 2
-
 # jenkinsfile.public
 git -C $DIR apply "$SCRIPT_DIR/patches/1786500000_jenkins_public_crdb.patch"
-git -C $DIR apply "$SCRIPT_DIR/patches/1787130032_jenkins_crdb_ci_tuning.patch"
 
 # tmp patches
 git -C $DIR apply "$SCRIPT_DIR/patches/1787122018_skip_wasm_vet_test.patch"
+git -C $DIR apply "$SCRIPT_DIR/patches/1785984803_vite_checker_cause_ci_hang.patch"
 
 # maybe upstream
 git -C $DIR apply "$SCRIPT_DIR/patches/1786665610_satellitedb_testing_delete_all.patch"

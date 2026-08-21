@@ -1,11 +1,3 @@
-# satellite/metabase/stats_test.go gates the AS OF SYSTEM TIME and
-# table-statistics subtests on dbutil.Cockroach. Apply after
-# 1786433450_postgres_adapter_crdb_table_stats.yml, which gives PostgresAdapter
-# the CockroachDB GetTableStats/UpdateTableStats bodies these subtests need;
-# without that patch these tests will fail rather than skip.
-#
-# Expected total match count: 2
-
 id: stats-test-postgres-as-of-interval
 language: Go
 rule:
@@ -30,3 +22,25 @@ rule:
   not:
     regex: 'dbutil\.Postgres'
 fix: 'db.Implementation() == dbutil.Cockroach || db.Implementation() == dbutil.TiDB || db.Implementation() == dbutil.Postgres'
+
+---
+
+id: stats-test-count-segments-drop-outer-skip
+language: Go
+rule:
+  pattern:
+    context: 'func TestCountSegments(t *testing.T) { t.Skip("TiDB broken at the moment due to db timing.") }'
+    selector: expression_statement
+fix: ''
+
+---
+id: stats-test-count-segments-invert-inner-skip
+language: Go
+rule:
+  pattern:
+    context: 'func f() { if db.Implementation() != dbutil.TiDB { t.Skip("implemented only for TiDB") } }'
+    selector: if_statement
+fix: |-
+  if db.Implementation() == dbutil.TiDB {
+  		t.Skip("TiDB reads AS OF TIMESTAMP at zero staleness here, which is unreliable; see tidbMinAsOfInterval")
+  	}

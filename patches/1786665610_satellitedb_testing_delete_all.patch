@@ -1,44 +1,3 @@
-satellite/satellitedb: add TestingDeleteAll for reusing test databases.
-
-PENDING UPSTREAM. Delete this patch once the change lands in storj upstream.
-This is not fork delta: it touches only test infrastructure, depends on no
-other patch in patch_sat, and benefits stock PostgreSQL and stock CockroachDB
-exactly as much as it benefits this fork.
-
-Adds TestingDeleteAll to the satellite.TestingDB interface, implemented as a
-thin wrapper over the dbx-generated DeleteAll plus a sequence rewind. It is the
-satellitedb counterpart of metabase.Adapter.TestingDeleteAll, which already
-exists in-tree at satellite/metabase/raw.go.
-
-Deleting every row from an already-migrated database costs ~50ms; creating and
-migrating a fresh one costs ~9s. That difference is what makes the database
-pool in the companion patch worthwhile.
-
-Three properties worth recording, all verified against the schema rather than
-assumed:
-
-  * dbx.DeleteAll issues DELETE against exactly the 55 tables in
-    satellitedb.dbx.pgx.sql - a 1:1 set match, nothing missing, nothing extra -
-    and being generated, it regenerates whenever the schema changes. No runtime
-    topological sort of pg_constraint is needed.
-  * Its order is foreign-key safe. Every child precedes its parent: api_key_tails
-    before api_keys, project_members and rest_api_keys before users, every
-    projects child before projects, stripecoinpayments_apply_balance_intents
-    before coinpayments_transactions.
-  * The versions table is created by the migration, not by dbx, so DeleteAll
-    structurally cannot touch it and the database stays reported at the latest
-    version. TestMigrateToLatest then finds it already migrated and does nothing
-    (satellite/satellitedb/migrate.go, the dbVersion != -1 check).
-
-DELETE is used rather than TRUNCATE deliberately. On CockroachDB, TRUNCATE is a
-descriptor swap that marks the old table for GC, so it is a schema change and
-schedules exactly the GC work this exists to avoid.
-
-Sequence rewind is dynamic rather than a hardcoded pair of setval calls, so it
-survives future migrations adding or removing bigserial columns. The
-information_schema query is the one already used by pgutil.QuerySchema.
-
-reset_test.go proves both premises against a live database.
 diff --git a/satellite/peer.go b/satellite/peer.go
 index 2c588be..60a0af1 100644
 --- a/satellite/peer.go
@@ -137,10 +96,7 @@ new file mode 100644
 index 0000000..0009722
 --- /dev/null
 +++ b/satellite/satellitedb/reset_test.go
-@@ -0,0 +1,91 @@
-+// Copyright (C) 2026 Storj Labs, Inc.
-+// See LICENSE for copying information.
-+
+@@ -0,0 +1,88 @@
 +package satellitedb_test
 +
 +import (

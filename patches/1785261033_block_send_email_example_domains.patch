@@ -1,24 +1,3 @@
-Block delivery to example.com / example.net / example.org.
-
-Replaces the earlier version of this patch, which put the check at the top of
-mailservice.Service.SendRendered and did `return nil`. That short-circuited
-before service.Sender.SendEmail was ever called, so:
-
-  * SendRenderedAsync saw err == nil and logged "email sent successfully",
-    making the block invisible in the logs, and
-  * any test that swaps in a fake Sender and waits for the delivered body
-    hung forever, because the fake was never invoked.
-
-That broke satellite/console TestWhiteLabelEmailBranding (test@example.com)
-and TestNewUserNotifications (admin@example.com), both of which block on
-consoleapi.ContextChannel.Get until the test context expires.
-
-Moving the check into post.SMTPSender.SendEmail fixes both problems and is a
-strictly stronger guarantee: nothing reaches a real SMTP server, including
-messages sent via Service.Send, which bypasses SendRendered entirely. Fake
-senders (simulate.NoMail, simulate.LinkClicker, and the EmailVerifier used in
-tests) are untouched, since they are not SMTPSender.
-
 diff --git a/private/post/sender.go b/private/post/sender.go
 index c435264..bf5513d 100644
 --- a/private/post/sender.go
@@ -31,14 +10,10 @@ index c435264..bf5513d 100644
  
  	"github.com/spacemonkeygo/monkit/v3"
  	"github.com/zeebo/errs"
-@@ -37,6 +38,19 @@ func (sender *SMTPSender) FromAddress() Address {
+@@ -37,6 +38,15 @@ func (sender *SMTPSender) FromAddress() Address {
  func (sender *SMTPSender) SendEmail(ctx context.Context, msg *Message) (err error) {
  	defer mon.Task()(&ctx)(&err)
  
-+	// RFC 2606 reserves these domains for documentation and examples; they are
-+	// never real mailboxes, so refuse to hand them to an SMTP server. Applied
-+	// here rather than in mailservice so that fake senders used by tests still
-+	// observe every message.
 +	for _, recipient := range msg.To {
 +		address := strings.ToUpper(recipient.Address)
 +		if strings.HasSuffix(address, "@EXAMPLE.COM") ||

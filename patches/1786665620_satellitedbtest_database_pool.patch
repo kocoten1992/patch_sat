@@ -1,67 +1,9 @@
-satellite/satellitedb/satellitedbtest: reuse test databases instead of dropping.
-
-PENDING UPSTREAM. Delete this patch once the change lands in storj upstream.
-Not fork delta - see the companion TestingDeleteAll patch for the reasoning.
-Requires that patch; apply it first.
-
-Per-test CREATE/DROP DATABASE is the dominant cost of a wide test run, and on
-CockroachDB it is worse than merely slow: every dropped database schedules a
-schema-change GC job, and storj generates them faster than the cluster drains
-them, so jobs pile up, CPU saturates, and tests stall or fail on starvation.
-
-This replaces create/drop-per-test with acquire / reset / release against
-reusable databases, gated on STORJ_TEST_DB_POOL (or -db-pool). Default off, so
-behaviour is unchanged unless asked for.
-
-Measured on this fork, full ./satellite/... sweep:
-
-  * before: ~1800 databases created and dropped, run failed near the end
-  * after:  ~930 databases, no drops at all, two consecutive green sweeps at
-            -p 2 and -p 4
-
-Design notes that are not obvious from the diff:
-
-  * Grow-on-demand, never blocking. A fixed-size pool deadlocks:
-    satellitedbtest.Run and metabasetest.Run both call t.Parallel(), and a
-    multi-satellite testplanet acquires a master and a metabase database per
-    satellite inside a single test, so a test holding one database can be
-    waiting on another.
-  * The pool stores connection strings, not live handles, because
-    TempDatabase.Close unconditionally closes the underlying connection. This
-    turns out to be better anyway - each acquire gets a fresh connection with no
-    session state carried over - and it keeps the pool backend-agnostic, since
-    ConnStr already encodes the temporary database or schema.
-  * Reset happens on acquire, not release, so a test that panics cannot poison
-    the next holder.
-  * Pooling is opt-in per call site via TempDBSchemaConfig.PoolKey. An empty key
-    disables it. Reuse is only safe where the caller resets a recycled database
-    before handing it to the test, so mudplanet's newPgTempDB, which does not,
-    keeps its existing behaviour rather than being silently pooled.
-  * The metabase pool key splits on TestingUniqueUnversioned. That config field
-    adds a migration step creating the objects_one_unversioned_per_location
-    unique index, so databases created with it set are not interchangeable with
-    those created without. It is the only config field the migration reads.
-  * satellite/satellitedb/migrate_test.go opens its temporary databases directly
-    via tempdb.OpenUnique rather than through satellitedbtest, so it is
-    unaffected and still creates and drops its own. That is intended - it needs
-    specific migration versions - and seeing load-schema-* and migrate-*
-    databases dropped during a pooled run does not mean the pool has failed.
-
-Known limitation: the pool is per-process, so each package binary keeps its own
-free list and nothing is shared across the ~60 packages in a sweep. Moving the
-free list to a lease table in the master database would converge the count on
-global peak concurrency instead. Optimisation, not a defect.
-
-STORJ_TEST_COCKROACH_NODROP is superseded by this and should be left unset.
 diff --git a/satellite/satellitedb/satellitedbtest/pool.go b/satellite/satellitedb/satellitedbtest/pool.go
 new file mode 100644
 index 0000000..73d0847
 --- /dev/null
 +++ b/satellite/satellitedb/satellitedbtest/pool.go
-@@ -0,0 +1,181 @@
-+// Copyright (C) 2026 Storj Labs, Inc.
-+// See LICENSE for copying information.
-+
+@@ -0,0 +1,178 @@
 +package satellitedbtest
 +
 +import (

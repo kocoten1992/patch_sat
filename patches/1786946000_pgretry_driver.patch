@@ -3,23 +3,7 @@ new file mode 100644
 index 0000000..d017b15
 --- /dev/null
 +++ b/shared/dbutil/pgretry/driver.go
-@@ -0,0 +1,333 @@
-+// Copyright (C) 2026 StorkSpace Labs, Inc.
-+// See LICENSE for copying information.
-+
-+// Package pgretry registers a "pgretry" sql/database driver: jackc/pgx/v5
-+// with CockroachDB retry semantics layered on top.
-+//
-+// It is a fork-local copy of shared/dbutil/cockroachutil's driver, minus the
-+// cockroach:// URL translation, so that the Postgres code path can keep
-+// client-side conflict retries even if upstream drops cockroachutil.
-+//
-+// Why this exists: tagsql adds no retry of its own, and metabase's
-+// PostgresAdapter issues many statements straight at the pool, outside any
-+// transaction. txutil.WithTx covers the transactional ones; nothing covers the
-+// rest. Bare pgx therefore surfaces 40001 and friends to the caller. This
-+// driver retries them, but only outside a transaction — inside one, the caller
-+// (txutil.WithTx) replays the whole block instead.
+@@ -0,0 +1,317 @@
 +package pgretry
 +
 +import (

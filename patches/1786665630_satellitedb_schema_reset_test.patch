@@ -1,39 +1,9 @@
-satellite/satellitedb: cover TestingDeleteAll under the schema-per-test layout.
-
-PENDING UPSTREAM. Delete this patch once the change lands in storj upstream.
-Requires the TestingDeleteAll patch; apply it first. Belongs squashed into that
-commit for the upstream PR - it is kept separate here only so the three pieces
-stay individually reviewable.
-
-TestingDeleteAll resolves table and sequence names through search_path rather
-than qualifying them, and enumerates sequences with CURRENT_SCHEMA. Which of
-those paths gets exercised depends on how the temporary database is laid out:
-
-  * upstream pgutil.OpenUnique creates a SCHEMA inside a shared database, so
-    CURRENT_SCHEMA is the temporary schema name. This is what upstream CI runs.
-  * this fork's patched pgutil.OpenUnique creates a DATABASE, so CURRENT_SCHEMA
-    is always "public".
-
-reset_test.go therefore only ever covers the second case here. This adds
-coverage of the first, by building a schema-scoped connection by hand with
-pgutil.ConnstrWithSchema and letting TestMigrateToLatest create the schema
-exactly as upstream does. It asserts CURRENT_SCHEMA really is the temporary
-schema, so it fails loudly rather than silently duplicating the other test.
-
-Skipped unless STORJ_TEST_SCHEMA_POSTGRES points at a PostgreSQL instance, so it
-is inert in this fork's normal runs.
-
-Verified against PostgreSQL: current_schema is the temporary schema and both
-bigserial sequences are found and rewound through search_path.
 diff --git a/satellite/satellitedb/reset_schema_test.go b/satellite/satellitedb/reset_schema_test.go
 new file mode 100644
 index 0000000..3c2c611
 --- /dev/null
 +++ b/satellite/satellitedb/reset_schema_test.go
-@@ -0,0 +1,116 @@
-+// Copyright (C) 2026 Storj Labs, Inc.
-+// See LICENSE for copying information.
-+
+@@ -0,0 +1,113 @@
 +package satellitedb_test
 +
 +import (

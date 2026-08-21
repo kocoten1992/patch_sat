@@ -53,3 +53,33 @@ rule:
     context: 'func f() { _, err := p.db.ExecContext(ctx, "VACUUM segments") }'
     selector: call_expression
 fix: 'p.db.ExecContext(ctx, "CREATE STATISTICS test FROM segments")'
+
+---
+
+id: postgres-adapter-crdb-count-segments
+language: Go
+rule:
+  pattern:
+    context: "func (p *PostgresAdapter) CountSegments(ctx context.Context, checkTimestamp time.Time) (result int64, err error) { $$$ }"
+    selector: method_declaration
+  # self-disabling: skip once the real body is in place
+  regex: 'not implemented'
+fix: |-
+  func (p *PostgresAdapter) CountSegments(ctx context.Context, checkTimestamp time.Time) (result int64, err error) {
+  	defer mon.Task()(&ctx)(&err)
+
+  	err = p.db.QueryRowContext(ctx, `SELECT count(1) FROM segments`+p.impl.AsOfSystemTime(checkTimestamp)).Scan(&result)
+  	if err != nil {
+  		return 0, Error.Wrap(err)
+  	}
+  	return result, nil
+  }
+
+---
+# self-disabling: once the import spec is gone there is nothing left to match
+id: postgres-adapter-crdb-count-segments-drop-errs-import
+language: Go
+rule:
+  kind: import_spec
+  regex: '^"github\.com/zeebo/errs"$'
+fix: ''

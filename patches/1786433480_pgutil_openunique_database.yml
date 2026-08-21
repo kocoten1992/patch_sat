@@ -1,39 +1,3 @@
-# tempdb.OpenUnique routes on URL prefix, so a postgres:// URL pointed at
-# CockroachDB gets pgutil.OpenUnique, which creates a named SCHEMA inside the
-# one shared database, while cockroachutil.OpenUnique creates a whole DATABASE.
-#
-# That single difference is the root cause of a family of problems:
-#
-#   * CREATE SCHEMA mutates the *database* descriptor, so every parallel test
-#     creating its temp schema writes the same descriptor row -> 40001
-#     (RETRY_SERIALIZABLE) under load. CREATE DATABASE writes a fresh
-#     descriptor and only touches the root namespace.
-#   * search_path is no longer the default, so CockroachDB schema-qualifies the
-#     referenced table in constraint definitions (patch 1786433425) and the
-#     sequence in nextval() column defaults (patch 1786433475).
-#   * DROP SCHEMA ... CASCADE stalls where DROP DATABASE does not, which needed
-#     the timeout tolerance in patch 1786433442.
-#
-# Rewrite pgutil.OpenUnique to mirror cockroachutil.OpenUnique: connect to the
-# master connstr, CREATE DATABASE, then reconnect with the URL path pointed at
-# the new database. Driver stays "pgx" and Implementation stays dbutil.Postgres,
-# so the Postgres code path — the thing this fork patches — is unchanged.
-#
-# The DROP-timeout tolerance from 1786433442 is folded in here, so
-# 1786433442 must be REMOVED from `apply`; it edits the same function literal
-# and will no longer match.
-#
-# 1786433425 and 1786433475 are kept: both only *widen* a regex to accept an
-# optional qualifier, so they stay correct whether or not the qualifier appears.
-# They can be retired later once the test run confirms it never does.
-#
-# Caveat: like cockroachutil.OpenUnique, cleanup issues DROP DATABASE over the
-# connection to that same database. CockroachDB allows this; real PostgreSQL
-# does not ("cannot drop the currently open database"). This fork only ever
-# points STORJ_TEST_POSTGRES at CockroachDB, so that is an acceptable trade.
-#
-# Expected match count: 3 (doc comment, function, import block)
-
 id: pgutil-openunique-database-doc
 language: Go
 rule:

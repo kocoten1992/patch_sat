@@ -1,3 +1,5 @@
+diff --git a/Jenkinsfile.public b/Jenkinsfile.public
+index 9b0f527..59fa41c 100644
 --- a/Jenkinsfile.public
 +++ b/Jenkinsfile.public
 @@ -2,7 +2,7 @@ pipeline {
@@ -9,7 +11,7 @@
              alwaysPull true
              args '-u root:root --cap-add SYS_PTRACE -v "/cache/gomod":/go/pkg/mod -v /cache/golangci-lint:/root/.cache/golangci-lint -v /cache/gobuild:/root/.cache/go-build -v /cache/gobenchmarks:/root/.cache/go-build-benchmarks -v /cache/gomain:/root/.cache/go-build-main -v "/cache/npm":/npm'
          }
-@@ -69,7 +69,30 @@ pipeline {
+@@ -69,7 +69,44 @@ pipeline {
              parallel {
                  stage('db') {
                      steps {
@@ -27,21 +29,35 @@
 +
 +                            JENKINS_NODE_COOKIE=dontKillMe nohup cockroach start-single-node --insecure --store=/tmp/crdb --listen-addr=localhost:26257 --http-addr=localhost:28080 > /dev/null 2>&1 &
 +
++                            ready=0
 +                            for _ in $(seq 1 20); do
 +                                if cockroach sql --insecure --host=localhost:26257 -e 'SELECT 1' > /dev/null 2>&1; then
 +                                    cockroach version
-+                                    exit 0
++                                    ready=1
++                                    break
 +                                fi
 +                                sleep 1
 +                            done
 +
-+                            echo 'cockroach did not start accepting connections in time' >&2
-+                            exit 1
++                            if [ "$ready" -ne 1 ]; then
++                                echo 'cockroach did not start accepting connections in time' >&2
++                                exit 1
++                            fi
++
++                            cockroach sql --insecure --host=localhost:26257 -f scripts/cockroach-ci-tuning.sql
++
++                            # Guard against silently losing the tuning again: `ALTER ROLE ALL SET`
++                            # is ignored for `root`, so assert on the role CI actually connects as.
++                            autocommit=$(cockroach sql --insecure --url 'postgres://storjci@localhost:26257/defaultdb?sslmode=disable' --format=csv -e 'SHOW autocommit_before_ddl' | tail -n 1)
++                            if [ "$autocommit" != "off" ] && [ "$autocommit" != "false" ]; then
++                                echo "autocommit_before_ddl is '$autocommit' for storjci, expected off" >&2
++                                exit 1
++                            fi
 +                        '''
                      }
                  }
              }
-@@ -113,20 +136,27 @@ pipeline {
+@@ -113,20 +150,27 @@ pipeline {
              environment {
                  STORJ_TEST_HOST = '127.0.0.20;127.0.0.21;127.0.0.22;127.0.0.23;127.0.0.24;127.0.0.25'
  
@@ -50,7 +66,7 @@
 +                // omitted so the cockroach:// path is not exercised.
                  STORJ_TEST_COCKROACH = 'omit'
 -                STORJ_TEST_POSTGRES = 'postgres://postgres@localhost/teststorj?sslmode=disable'
-+                STORJ_TEST_POSTGRES = 'postgres://root@localhost:26257/teststorj?sslmode=disable'
++                STORJ_TEST_POSTGRES = 'postgres://storjci@localhost:26257/teststorj?sslmode=disable'
                  STORJ_TEST_TIDB = 'omit'
  
 +                STORJ_TEST_DB_POOL = 'true'
@@ -72,12 +88,12 @@
              }
  
              post {
-@@ -152,14 +182,14 @@ pipeline {
+@@ -152,14 +196,14 @@ pipeline {
          stage('Satellite UI Tests') {
              environment {
                  STORJ_TEST_COCKROACH = 'omit'
 -                STORJ_TEST_POSTGRES = 'postgres://postgres@localhost/uitestpostgres?sslmode=disable'
-+                STORJ_TEST_POSTGRES = 'postgres://root@localhost:26257/uitestpostgres?sslmode=disable'
++                STORJ_TEST_POSTGRES = 'postgres://storjci@localhost:26257/uitestpostgres?sslmode=disable'
                  STORJ_TEST_TIDB = 'omit'
  
                  STORJ_TEST_LOG_LEVEL = 'debug'
@@ -89,14 +105,16 @@
                  sh 'make test/integration/ui'
  
                  dir('web/satellite/wasm') {
-@@ -179,13 +209,13 @@ pipeline {
+@@ -179,13 +223,15 @@ pipeline {
          stage('Check Benchmark') {
              environment {
                  STORJ_TEST_COCKROACH = 'omit'
 -                STORJ_TEST_POSTGRES = 'postgres://postgres@localhost/benchstorj?sslmode=disable'
-+                STORJ_TEST_POSTGRES = 'postgres://root@localhost:26257/benchstorj?sslmode=disable'
++                STORJ_TEST_POSTGRES = 'postgres://storjci@localhost:26257/benchstorj?sslmode=disable'
                  STORJ_TEST_TIDB = 'omit'
  
++                STORJ_TEST_DB_POOL = 'true'
++
                  GOCACHE = '/root/.cache/go-build-benchmarks'
              }
              steps {
@@ -105,12 +123,12 @@
                  sh 'go test -parallel 1 -p 16 -vet=off -timeout 20m -short -run XYZXYZXYZXYZ -bench . -benchtime 1x ./...'
              }
          }
-@@ -198,11 +228,11 @@ pipeline {
+@@ -198,11 +244,11 @@ pipeline {
                          STORJ_NETWORK_HOST4 = '127.0.0.2'
                          STORJ_NETWORK_HOST6 = '127.0.0.2'
  
 -                        STORJ_SIM_POSTGRES = 'postgres://postgres@localhost/teststorj2?sslmode=disable'
-+                        STORJ_SIM_POSTGRES = 'postgres://root@localhost:26257/teststorj2?sslmode=disable'
++                        STORJ_SIM_POSTGRES = 'postgres://storjci@localhost:26257/teststorj2?sslmode=disable'
                      }
  
                      steps {
@@ -119,29 +137,32 @@
                          sh 'make test-sim'
  
                          // sh 'make test-certificates' // flaky
-@@ -218,13 +248,13 @@ pipeline {
+@@ -218,13 +264,16 @@ pipeline {
                          STORJ_NETWORK_HOST4 = '127.0.0.3'
                          STORJ_NETWORK_HOST6 = '127.0.0.3'
  
 -                        STORJ_SIM_POSTGRES = 'postgres://postgres@localhost/teststorj3?sslmode=disable'
 -                        STORJ_MIGRATION_DB = 'postgres://postgres@localhost/teststorj3?sslmode=disable&options=--search_path=satellite/0/meta'
-+                        STORJ_SIM_POSTGRES = 'postgres://root@localhost:26257/teststorj3?sslmode=disable'
-+                        STORJ_MIGRATION_DB = 'postgres://root@localhost:26257/teststorj3?sslmode=disable&options=--search_path=satellite/0/meta'
++                        STORJ_SIM_POSTGRES = 'postgres://storjci@localhost:26257/teststorj3?sslmode=disable'
++                        STORJ_MIGRATION_DB = 'postgres://storjci@localhost:26257/teststorj3?sslmode=disable&options=--search_path=satellite/0/meta'
                          STORJ_CONSOLE_SIGNUP_ACTIVATION_CODE_ENABLED = 'false'
++
++                        STORJ_TEST_DB_POOL = 'true'
                      }
  
                      steps {
 -                        sh 'psql -U postgres -c \'create database teststorj3;\''
++                        sh 'cockroach sql --insecure --host=localhost:26257 -f scripts/cockroach-ci-tuning.sql'
 +                        sh 'cockroach sql --insecure --host=localhost:26257 -e \'create database if not exists teststorj3;\''
                          sh 'make test-sim-backwards-compatible'
                      }
                  }
-@@ -238,11 +268,11 @@ pipeline {
+@@ -238,11 +287,11 @@ pipeline {
                  STORJ_NETWORK_HOST6 = '127.0.0.6'
                  STORJ_REDIS_PORT = '7379'
  
 -                STORJ_SIM_POSTGRES = 'postgres://postgres@localhost/teststorj6?sslmode=disable'
-+                STORJ_SIM_POSTGRES = 'postgres://root@localhost:26257/teststorj6?sslmode=disable'
++                STORJ_SIM_POSTGRES = 'postgres://storjci@localhost:26257/teststorj6?sslmode=disable'
              }
  
              steps {
@@ -150,3 +171,31 @@
                  sh 'make test-sim-redis-unavailability'
              }
          }
+diff --git a/scripts/cockroach-ci-tuning.sql b/scripts/cockroach-ci-tuning.sql
+new file mode 100644
+index 0000000..7936d74
+--- /dev/null
++++ b/scripts/cockroach-ci-tuning.sql
+@@ -0,0 +1,22 @@
++-- The `root` user is exempt from `ALTER ROLE ... SET` defaults (it only honours
++-- session variables passed in the connection string). CI therefore connects as
++-- a dedicated non-root role so the defaults below actually take effect.
++CREATE USER IF NOT EXISTS storjci;
++GRANT admin TO storjci;
++
++ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
++
++-- Without this, CockroachDB >= v25.1 auto-commits before every DDL statement,
++-- which breaks migrations that drop and re-add a primary key in one transaction
++-- (e.g. satellitedb migrate v227, bucket_bandwidth_rollups_pk).
++ALTER ROLE ALL SET autocommit_before_ddl = false;
++ALTER ROLE storjci SET autocommit_before_ddl = false;
++
++SET CLUSTER SETTING jobs.registry.interval.gc = '2m';
++SET CLUSTER SETTING jobs.retention_time = '10m';
++SET CLUSTER SETTING kv.mvcc_gc.queue_interval = '0s';
++SET CLUSTER SETTING kv.range_merge.queue_interval = '0s';
++SET CLUSTER SETTING sql.defaults.create_table_with_schema_locked = false;
++SET CLUSTER SETTING sql.gc_job.wait_for_gc.interval = '30s';
++SET CLUSTER SETTING sql.schema.approx_max_object_count = 500000;
++SET CLUSTER SETTING sql.stats.automatic_collection.enabled = false;

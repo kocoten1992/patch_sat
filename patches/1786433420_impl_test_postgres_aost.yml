@@ -1,14 +1,3 @@
-# Updates shared/dbutil/impl_test.go so the table-driven AS OF SYSTEM TIME
-# expectations for dbutil.Postgres match the CockroachDB forms introduced by
-# 1786433401, 1786433405, 1786433410 and 1786433415.
-#
-# Each rule is scoped to a single test function and a single row, and is
-# self-disabling: once the row carries the new expectation the regex no longer
-# matches, so `apply` will report a count mismatch if this is run twice or if
-# upstream changes the row.
-#
-# Expected total match count: 11
-
 id: impl-test-postgres-aost
 language: Go
 rule:

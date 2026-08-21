@@ -1,0 +1,34 @@
+# Expected total match count: 3
+
+id: merge-bucket-bandwidth-rollups-pk
+language: go
+rule:
+  pattern: tx.ExecContext(ctx, $SQL)
+  regex: 'ALTER TABLE bucket_bandwidth_rollups DROP CONSTRAINT bucket_bandwidth_rollups_pk'
+fix: |-
+  tx.ExecContext(ctx, `ALTER TABLE bucket_bandwidth_rollups DROP CONSTRAINT bucket_bandwidth_rollups_pk, ADD CONSTRAINT bucket_bandwidth_rollups_pk PRIMARY KEY (project_id, bucket_name, interval_start, action);`)
+
+---
+
+id: merge-bucket-bandwidth-metainfos-pk
+language: go
+rule:
+  pattern: tx.ExecContext(ctx, $SQL)
+  regex: 'ALTER TABLE bucket_metainfos DROP CONSTRAINT bucket_metainfos_pkey'
+fix: |-
+  tx.ExecContext(ctx, `ALTER TABLE bucket_metainfos DROP CONSTRAINT bucket_metainfos_pkey, ADD CONSTRAINT bucket_metainfos_pkey PRIMARY KEY (project_id, name);`)
+
+---
+
+id: migrate-v243-drop-index-cascade
+language: go
+rule:
+  pattern: |-
+    if db.Name() == tagsql.CockroachName {
+      _, err = tx.ExecContext(ctx, $CRDB)
+    } else {
+      _, err = tx.ExecContext(ctx, $PG)
+    }
+  regex: 'bucket_metainfos_project_id_name_key'
+fix: |-
+  _, err = tx.ExecContext(ctx, `DROP INDEX IF EXISTS bucket_metainfos_project_id_name_key CASCADE`)
