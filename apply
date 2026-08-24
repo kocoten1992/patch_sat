@@ -119,7 +119,6 @@ apply_rule "$SCRIPT_DIR/patches/1786946020_metabase_postgres_pgretry_driver.yml"
 git -C $DIR apply "$SCRIPT_DIR/patches/1786500000_jenkins_public_crdb.patch"
 
 # tmp patches
-git -C $DIR apply "$SCRIPT_DIR/patches/1787122018_skip_wasm_vet_test.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1785984803_vite_checker_cause_ci_hang.patch"
 
 # maybe upstream

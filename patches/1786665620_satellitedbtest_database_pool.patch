@@ -3,7 +3,10 @@ new file mode 100644
 index 0000000..73d0847
 --- /dev/null
 +++ b/satellite/satellitedb/satellitedbtest/pool.go
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,181 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
 +package satellitedbtest
 +
 +import (

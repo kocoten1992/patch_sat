@@ -3,7 +3,10 @@ new file mode 100644
 index 0000000..d017b15
 --- /dev/null
 +++ b/shared/dbutil/pgretry/driver.go
-@@ -0,0 +1,317 @@
+@@ -0,0 +1,320 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
 +package pgretry
 +
 +import (

@@ -3,7 +3,10 @@ new file mode 100644
 index 0000000..3c2c611
 --- /dev/null
 +++ b/satellite/satellitedb/reset_schema_test.go
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,116 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
 +package satellitedb_test
 +
 +import (
