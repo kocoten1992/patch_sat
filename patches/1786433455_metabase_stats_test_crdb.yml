@@ -22,25 +22,3 @@ rule:
   not:
     regex: 'dbutil\.Postgres'
 fix: 'db.Implementation() == dbutil.Cockroach || db.Implementation() == dbutil.TiDB || db.Implementation() == dbutil.Postgres'
-
----
-
-id: stats-test-count-segments-drop-outer-skip
-language: Go
-rule:
-  pattern:
-    context: 'func TestCountSegments(t *testing.T) { t.Skip("TiDB broken at the moment due to db timing.") }'
-    selector: expression_statement
-fix: ''
-
----
-id: stats-test-count-segments-invert-inner-skip
-language: Go
-rule:
-  pattern:
-    context: 'func f() { if db.Implementation() != dbutil.TiDB { t.Skip("implemented only for TiDB") } }'
-    selector: if_statement
-fix: |-
-  if db.Implementation() == dbutil.TiDB {
-  		t.Skip("TiDB reads AS OF TIMESTAMP at zero staleness here, which is unreliable; see tidbMinAsOfInterval")
-  	}

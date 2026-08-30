@@ -1,21 +1,3 @@
-# With a postgres:// URL, metabase.Open builds a PostgresAdapter, so the
-# CockroachAdapter overrides never run. Two of them are not optional against a
-# CockroachDB server:
-#
-#   * PostgresAdapter.GetTableStats reads pg_stat_user_tables (n_live_tup,
-#     last_analyze). CockroachDB does not provide that view, so the query errors
-#     rather than returning sql.ErrNoRows, and TestGetTableStats fails. It also
-#     ignores opts.AsOfSystemInterval entirely.
-#   * PostgresAdapter.UpdateTableStats runs VACUUM, which CockroachDB does not
-#     support.
-#
-# Both are replaced with the CockroachAdapter bodies. This is the first slice of
-# folding CockroachAdapter into PostgresAdapter; the remaining overrides
-# (CommitPendingObjectSegment, CommitInlineSegment, IterateLoopSegments,
-# DeleteAllBucketObjects, MigrateToLatest, TestMigrateToLatest) still need doing.
-#
-# Expected total match count: 2
-
 id: postgres-adapter-crdb-get-table-stats
 language: Go
 rule:
@@ -53,33 +35,3 @@ rule:
     context: 'func f() { _, err := p.db.ExecContext(ctx, "VACUUM segments") }'
     selector: call_expression
 fix: 'p.db.ExecContext(ctx, "CREATE STATISTICS test FROM segments")'
-
----
-
-id: postgres-adapter-crdb-count-segments
-language: Go
-rule:
-  pattern:
-    context: "func (p *PostgresAdapter) CountSegments(ctx context.Context, checkTimestamp time.Time) (result int64, err error) { $$$ }"
-    selector: method_declaration
-  # self-disabling: skip once the real body is in place
-  regex: 'not implemented'
-fix: |-
-  func (p *PostgresAdapter) CountSegments(ctx context.Context, checkTimestamp time.Time) (result int64, err error) {
-  	defer mon.Task()(&ctx)(&err)
-
-  	err = p.db.QueryRowContext(ctx, `SELECT count(1) FROM segments`+p.impl.AsOfSystemTime(checkTimestamp)).Scan(&result)
-  	if err != nil {
-  		return 0, Error.Wrap(err)
-  	}
-  	return result, nil
-  }
-
----
-# self-disabling: once the import spec is gone there is nothing left to match
-id: postgres-adapter-crdb-count-segments-drop-errs-import
-language: Go
-rule:
-  kind: import_spec
-  regex: '^"github\.com/zeebo/errs"$'
-fix: ''
