@@ -102,6 +102,7 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domai
 apply_rule "$SCRIPT_DIR/patches/1786433401_postgres_aost_impl.yml" "$DIR/shared/dbutil/impl.go" 4
 apply_rule "$SCRIPT_DIR/patches/1786433420_impl_test_postgres_aost.yml" "$DIR/shared/dbutil/impl_test.go" 11
 apply_rule "$SCRIPT_DIR/patches/1786433430_loop_test_postgres_fixed_read_timestamp.yml" "$DIR/satellite/metabase/loop_test.go" 2
+apply_rule "$SCRIPT_DIR/patches/1787270020_rangedloop_readtimestamp_test_crdb_postgres.yml" "$DIR/satellite/metabase/rangedloop/readtimestamp_test.go" 6
 apply_rule "$SCRIPT_DIR/patches/1786433435_pgutil_query_test_crdb_expectations.yml" "$DIR/shared/dbutil/pgutil/query_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433440_migrate_test_crdb_concurrency.yml" "$DIR/satellite/satellitedb/migrate_test.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433450_metabase_stats_crdb.yml" "$DIR/satellite/metabase/stats.go" 2

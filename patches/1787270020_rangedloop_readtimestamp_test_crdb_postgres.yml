@@ -1,0 +1,52 @@
+id: rangedloop-serves-fixed-postgres-alone
+language: Go
+rule:
+  pattern: |-
+    require.False(t, rangedloop.ServesFixedReadTimestamp(map[string]dbutil.Implementation{"p": dbutil.Postgres}))
+fix: |-
+  require.True(t, rangedloop.ServesFixedReadTimestamp(map[string]dbutil.Implementation{"p": dbutil.Postgres}))
+
+---
+id: rangedloop-serves-fixed-postgres-cockroach
+language: Go
+rule:
+  pattern: |-
+    require.False(t, rangedloop.ServesFixedReadTimestamp(map[string]dbutil.Implementation{"p": dbutil.Postgres, "c": dbutil.Cockroach}))
+fix: |-
+  require.True(t, rangedloop.ServesFixedReadTimestamp(map[string]dbutil.Implementation{"p": dbutil.Postgres, "c": dbutil.Cockroach}))
+
+---
+id: rangedloop-can-read-snapshot-fixed-postgres
+language: Go
+rule:
+  pattern: |-
+    require.False(t, rangedloop.CanReadSnapshot(fixed, false, postgres))
+fix: |-
+  require.True(t, rangedloop.CanReadSnapshot(fixed, false, postgres))
+
+---
+id: rangedloop-can-read-snapshot-fixed-mixed
+language: Go
+rule:
+  pattern: |-
+    require.False(t, rangedloop.CanReadSnapshot(fixed, false, mixed))
+fix: |-
+  require.True(t, rangedloop.CanReadSnapshot(fixed, false, mixed))
+
+---
+id: rangedloop-can-read-snapshot-live-postgres
+language: Go
+rule:
+  pattern: |-
+    require.True(t, rangedloop.CanReadSnapshot(live, true, postgres))
+fix: |-
+  require.False(t, rangedloop.CanReadSnapshot(live, true, postgres))
+
+---
+id: rangedloop-can-read-snapshot-fixed-mixed-live-allowed
+language: Go
+rule:
+  pattern: |-
+    require.False(t, rangedloop.CanReadSnapshot(fixed, true, mixed))
+fix: |-
+  require.True(t, rangedloop.CanReadSnapshot(fixed, true, mixed))
