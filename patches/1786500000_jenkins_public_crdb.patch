@@ -11,6 +11,14 @@ index 9b0f527..59fa41c 100644
              alwaysPull true
              args '-u root:root --cap-add SYS_PTRACE -v "/cache/gomod":/go/pkg/mod -v /cache/golangci-lint:/root/.cache/golangci-lint -v /cache/gobuild:/root/.cache/go-build -v /cache/gobenchmarks:/root/.cache/go-build-benchmarks -v /cache/gomain:/root/.cache/go-build-main -v "/cache/npm":/npm'
          }
+@@ -11,6 +11,7 @@ pipeline {
+         skipDefaultCheckout(true)
+     }
+     environment {
+         NPM_CONFIG_CACHE = '/npm/cache'
+         GOTRACEBACK = 'all'
++        GOFLAGS = '-buildvcs=false'
+     }
 @@ -69,7 +69,44 @@ pipeline {
              parallel {
                  stage('db') {
