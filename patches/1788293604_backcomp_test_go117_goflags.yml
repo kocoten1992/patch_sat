@@ -1,0 +1,37 @@
+id: strip-buildvcs-goflag-for-legacy-go-toolchain
+language: Go
+
+rule:
+  all:
+    - pattern: cmd.Env = append(cmd.Env, $$$ARGS)
+    - inside:
+        stopBy: end
+        kind: function_declaration
+        has:
+          stopBy: end
+          pattern: exec.Command("go1.17.13", $$$_)
+    # self-disabling: skip if this function was already patched
+    - not:
+        inside:
+          stopBy: end
+          kind: function_declaration
+          has:
+            stopBy: end
+            regex: 'go1\.17\.13 predates -buildvcs'
+
+fix: |-
+  // go1.17.13 predates -buildvcs (Go 1.18+); strip just that flag from
+  // GOFLAGS while preserving any other flags that might be set.
+  for i, e := range cmd.Env {
+  	if name, value, ok := strings.Cut(e, "="); ok && name == "GOFLAGS" {
+  		var kept []string
+  		for _, f := range strings.Fields(value) {
+  			if !strings.HasPrefix(f, "-buildvcs") {
+  				kept = append(kept, f)
+  			}
+  		}
+  		cmd.Env[i] = "GOFLAGS=" + strings.Join(kept, " ")
+  		break
+  	}
+  }
+  cmd.Env = append(cmd.Env, $$$ARGS)
