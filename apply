@@ -116,6 +116,9 @@ apply_rule "$SCRIPT_DIR/patches/1786946010_tagsql_detect_pgretry.yml" "$DIR/shar
 apply_rule "$SCRIPT_DIR/patches/1786946015_tagsql_name_pgretry.yml" "$DIR/shared/tagsql/db.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786946020_metabase_postgres_pgretry_driver.yml" "$DIR/satellite/metabase/db.go" 2
 
+# guest email feature
+git -C $DIR apply "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email.patch"
+
 # jenkinsfile.public
 git -C $DIR apply "$SCRIPT_DIR/patches/1786500000_jenkins_public_crdb.patch"
 apply_rule "$SCRIPT_DIR/patches/1788293604_backcomp_test_go117_goflags.yml" "$DIR/cmd/uplink/backcomp_test.go" 1

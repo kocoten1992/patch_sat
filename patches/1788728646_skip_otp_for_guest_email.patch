@@ -1,0 +1,306 @@
+diff --git a/satellite/console/service.go b/satellite/console/service.go
+index e7df915..c014c98 100644
+--- a/satellite/console/service.go
++++ b/satellite/console/service.go
+@@ -3213,6 +3213,19 @@ const (
+ 	SkipObjectLockEnabledBuckets = "skip-object-lock-enabled-buckets"
+ )
+ 
++var guestEmailDomains = map[string]struct{}{
++	"EXAMPLE.NET": {},
++}
++
++func isGuestEmail(email string) bool {
++	_, domain, ok := strings.Cut(email, "@")
++	if !ok {
++		return false
++	}
++	_, isGuest := guestEmailDomains[strings.ToUpper(domain)]
++	return isGuest
++}
++
+ // DeleteAccount handles self-serve account delete actions.
+ func (s *Service) DeleteAccount(ctx context.Context, step AccountActionStep, data string) (resp *DeleteAccountResponse, err error) {
+ 	defer mon.Task()(&ctx)(&err)
+@@ -3451,20 +3472,27 @@ func (s *Service) handlePasswordStep(ctx context.Context, user *User, data strin
+ 		return ErrValidation.New("password is incorrect")
+ 	}
+ 
++	skipOldEmailVerification := action == changeEmailAction && isGuestEmail(user.Email)
++
++	step := VerifyAccountPasswordStep
++	if skipOldEmailVerification && !user.MFAEnabled {
++		step = VerifyAccountEmailStep
++	}
++
+ 	var verificationCode string
+-	if !user.MFAEnabled {
++	if !user.MFAEnabled && !skipOldEmailVerification {
+ 		verificationCode, err = generateVerificationCode()
+ 		if err != nil {
+ 			return Error.Wrap(err)
+ 		}
+ 	}
+ 
+-	err = s.updateStep(ctx, user.ID, VerifyAccountPasswordStep, verificationCode, nil)
++	err = s.updateStep(ctx, user.ID, step, verificationCode, nil)
+ 	if err != nil {
+ 		return Error.Wrap(err)
+ 	}
+ 
+-	if !user.MFAEnabled {
++	if !user.MFAEnabled && !skipOldEmailVerification {
+ 		var emailAction string
+ 		switch action {
+ 		case changeEmailAction:
+@@ -3523,16 +3555,30 @@ func (s *Service) handleMfaStep(ctx context.Context, user *User, data string, ac
+ 		return ErrMFAPasscode.New(mfaPasscodeInvalidErrMsg)
+ 	}
+ 
+-	verificationCode, err := generateVerificationCode()
+-	if err != nil {
+-		return Error.Wrap(err)
++	skipOldEmailVerification := action == changeEmailAction && isGuestEmail(user.Email)
++
++	step := VerifyAccountMfaStep
++	if skipOldEmailVerification {
++		step = VerifyAccountEmailStep
+ 	}
+ 
+-	err = s.updateStep(ctx, user.ID, VerifyAccountMfaStep, verificationCode, nil)
++	var verificationCode string
++	if !skipOldEmailVerification {
++		verificationCode, err = generateVerificationCode()
++		if err != nil {
++			return Error.Wrap(err)
++		}
++	}
++
++	err = s.updateStep(ctx, user.ID, step, verificationCode, nil)
+ 	if err != nil {
+ 		return Error.Wrap(err)
+ 	}
+ 
++	if skipOldEmailVerification {
++		return nil
++	}
++
+ 	var emailAction string
+ 	switch action {
+ 	case changeEmailAction:
+diff --git a/satellite/console/service_test.go b/satellite/console/service_test.go
+index 0597ef4..5ec6888 100644
+--- a/satellite/console/service_test.go
++++ b/satellite/console/service_test.go
+@@ -2517,6 +2517,149 @@ func TestChangeEmail(t *testing.T) {
+ 	})
+ }
+ 
++func TestChangeEmailGuestOldEmail(t *testing.T) {
++	testplanet.Run(t, testplanet.Config{
++		SatelliteCount: 1, UplinkCount: 1,
++		Reconfigure: testplanet.Reconfigure{
++			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
++				config.Console.EmailChangeFlowEnabled = true
++			},
++		},
++	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
++		sat := planet.Satellites[0]
++		db := sat.DB
++		service := sat.API.Console.Service
++
++		setGuestEmail := func(userID uuid.UUID, guestEmail string) {
++			err := db.Console().Users().Update(ctx, userID, console.UpdateUserRequest{Email: &guestEmail})
++			require.NoError(t, err)
++		}
++
++		t.Run("without MFA", func(t *testing.T) {
++			usr, err := sat.AddUser(ctx, console.CreateUser{
++				FullName: "Guest Old Email No MFA",
++				Email:    "guest-no-mfa@mail.test",
++			}, 1)
++			require.NoError(t, err)
++
++			setGuestEmail(usr.ID, "placeholder-1@example.net")
++
++			updateContext := func() (context.Context, *console.User) {
++				userCtx, err := sat.UserContext(ctx, usr.ID)
++				require.NoError(t, err)
++				user, err := console.GetUser(userCtx)
++				require.NoError(t, err)
++				return userCtx, user
++			}
++			userCtx, _ := updateContext()
++
++			// password step should skip straight past the "verify old email" step,
++			// since there's no real address to send a code to.
++			err = service.ChangeEmail(userCtx, console.VerifyAccountPasswordStep, usr.FullName)
++			require.NoError(t, err)
++
++			userCtx, user := updateContext()
++			require.Equal(t, console.VerifyAccountEmailStep, user.EmailChangeVerificationStep)
++			require.Empty(t, user.ActivationCode)
++
++			// the new email step is now reachable directly.
++			newEmail := "real-address-1@mail.test"
++			err = service.ChangeEmail(userCtx, console.ChangeAccountEmailStep, newEmail)
++			require.NoError(t, err)
++
++			userCtx, user = updateContext()
++			require.Equal(t, console.ChangeAccountEmailStep, user.EmailChangeVerificationStep)
++			require.NotNil(t, user.NewUnverifiedEmail)
++			require.Equal(t, newEmail, *user.NewUnverifiedEmail)
++			require.NotEmpty(t, user.ActivationCode)
++
++			err = service.ChangeEmail(userCtx, console.VerifyNewAccountEmailStep, user.ActivationCode)
++			require.NoError(t, err)
++
++			_, user = updateContext()
++			require.Equal(t, newEmail, user.Email)
++			require.Equal(t, 0, user.EmailChangeVerificationStep)
++		})
++
++		t.Run("with MFA", func(t *testing.T) {
++			usr, err := sat.AddUser(ctx, console.CreateUser{
++				FullName: "Guest Old Email MFA",
++				Email:    "guest-mfa@mail.test",
++			}, 1)
++			require.NoError(t, err)
++
++			setGuestEmail(usr.ID, "placeholder-2@example.net")
++
++			updateContext := func() (context.Context, *console.User) {
++				userCtx, err := sat.UserContext(ctx, usr.ID)
++				require.NoError(t, err)
++				user, err := console.GetUser(userCtx)
++				require.NoError(t, err)
++				return userCtx, user
++			}
++			userCtx, _ := updateContext()
++
++			mfaSecret, err := service.ResetMFASecretKey(userCtx)
++			require.NoError(t, err)
++
++			now := time.Now()
++			goodCode, err := console.NewMFAPasscode(mfaSecret, now)
++			require.NoError(t, err)
++
++			err = service.EnableUserMFA(userCtx, goodCode, now)
++			require.NoError(t, err)
++
++			userCtx, _ = updateContext()
++
++			// with MFA enabled, the password step doesn't send an old-email code either way.
++			err = service.ChangeEmail(userCtx, console.VerifyAccountPasswordStep, usr.FullName)
++			require.NoError(t, err)
++
++			userCtx, user := updateContext()
++			require.Equal(t, console.VerifyAccountPasswordStep, user.EmailChangeVerificationStep)
++			require.Empty(t, user.ActivationCode)
++
++			// MFA is independent of the guest-email skip: a wrong passcode must still fail,
++			// even though the account's old email would otherwise let the step be skipped.
++			wrongCode, err := console.NewMFAPasscode(mfaSecret, now.Add(time.Hour))
++			require.NoError(t, err)
++
++			err = service.ChangeEmail(userCtx, console.VerifyAccountMfaStep, wrongCode)
++			require.Error(t, err)
++			require.True(t, console.ErrMFAPasscode.Has(err))
++
++			userCtx, user = updateContext()
++			require.Equal(t, console.VerifyAccountPasswordStep, user.EmailChangeVerificationStep)
++
++			// once MFA succeeds, it should skip straight past the "verify old email" step.
++			goodCode, err = console.NewMFAPasscode(mfaSecret, now)
++			require.NoError(t, err)
++
++			err = service.ChangeEmail(userCtx, console.VerifyAccountMfaStep, goodCode)
++			require.NoError(t, err)
++
++			userCtx, user = updateContext()
++			require.Equal(t, console.VerifyAccountEmailStep, user.EmailChangeVerificationStep)
++			require.Empty(t, user.ActivationCode)
++
++			// the new email step is now reachable directly.
++			newEmail := "real-address-2@mail.test"
++			err = service.ChangeEmail(userCtx, console.ChangeAccountEmailStep, newEmail)
++			require.NoError(t, err)
++
++			userCtx, user = updateContext()
++			require.NotEmpty(t, user.ActivationCode)
++
++			err = service.ChangeEmail(userCtx, console.VerifyNewAccountEmailStep, user.ActivationCode)
++			require.NoError(t, err)
++
++			_, user = updateContext()
++			require.Equal(t, newEmail, user.Email)
++			require.Equal(t, 0, user.EmailChangeVerificationStep)
++		})
++	})
++}
++
+ func TestCreateProject_WithEntitlementsService(t *testing.T) {
+ 	var (
+ 		placement10       = storj.PlacementConstraint(10)
+diff --git a/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue b/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue
+index 4b13da6..0353f74 100644
+--- a/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue
++++ b/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue
+@@ -232,7 +232,7 @@ import {
+ } from 'vuetify/components';
+ import { MailPlus, X } from '@lucide/vue';
+ 
+-import { ChangeEmailStep } from '@/types/accountActions';
++import { ChangeEmailStep, isGuestEmail } from '@/types/accountActions';
+ import type { User } from '@/types/users';
+ import { EmailRule, RequiredRule } from '@/types/common';
+ import { useUsersStore } from '@/store/modules/usersStore';
+@@ -264,6 +264,8 @@ const isOTPInputError = ref<boolean>(false);
+ 
+ const user = computed<User>(() => userStore.state.user);
+ 
++const skipOldEmailVerification = computed<boolean>(() => isGuestEmail(user.value.email));
++
+ async function proceed(): Promise<void> {
+     await withLoading(async () => {
+         try {
+@@ -279,6 +283,8 @@ async function proceed(): Promise<void> {
+ 
+                 if (user.value.isMFAEnabled) {
+                     step.value = ChangeEmailStep.Verify2faStep;
++                } else if (skipOldEmailVerification.value) {
++                    step.value = ChangeEmailStep.SetNewEmailStep;
+                 } else {
+                     step.value = ChangeEmailStep.VerifyOldEmailStep;
+                 }
+@@ -291,7 +297,7 @@ async function proceed(): Promise<void> {
+ 
+                 await userStore.changeEmail(ChangeEmailStep.Verify2faStep, code2fa.value.trim());
+ 
+-                step.value = ChangeEmailStep.VerifyOldEmailStep;
++                step.value = skipOldEmailVerification.value ? ChangeEmailStep.SetNewEmailStep : ChangeEmailStep.VerifyOldEmailStep;
+                 break;
+             case ChangeEmailStep.VerifyOldEmailStep:
+                 if (codeVerifyOld.value.length !== 6) {
+diff --git a/web/satellite/src/types/accountActions.ts b/web/satellite/src/types/accountActions.ts
+index d719166..e01f5d9 100644
+--- a/web/satellite/src/types/accountActions.ts
++++ b/web/satellite/src/types/accountActions.ts
+@@ -37,4 +37,14 @@ export enum DeleteProjectStep {
+     WaitForInvoicingStep,
+ }
+ 
+-export const SKIP_OBJECT_LOCK_ENABLED_BUCKETS = 'skip-object-lock-enabled-buckets';
+\ No newline at end of file
++export const SKIP_OBJECT_LOCK_ENABLED_BUCKETS = 'skip-object-lock-enabled-buckets';
++
++const GUEST_EMAIL_DOMAINS = new Set(['EXAMPLE.NET']);
++
++export function isGuestEmail(email: string): boolean {
++    const atIdx = email.lastIndexOf('@');
++    if (atIdx === -1) {
++        return false;
++    }
++    return GUEST_EMAIL_DOMAINS.has(email.slice(atIdx + 1).toUpperCase());
++}
+\ No newline at end of file
