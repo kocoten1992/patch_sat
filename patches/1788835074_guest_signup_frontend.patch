@@ -1,0 +1,184 @@
+diff --git a/web/satellite/src/types/accountActions.ts b/web/satellite/src/types/accountActions.ts
+index d4f1372..acb36d0 100644
+--- a/web/satellite/src/types/accountActions.ts
++++ b/web/satellite/src/types/accountActions.ts
+@@ -47,4 +47,11 @@ export function isGuestEmail(email: string): boolean {
+         return false;
+     }
+     return GUEST_EMAIL_DOMAINS.has(email.slice(atIdx + 1).toUpperCase());
++}
++
++export function generateGuestEmail(): string {
++    const domains = Array.from(GUEST_EMAIL_DOMAINS);
++    const domain = domains[Math.floor(Math.random() * domains.length)].toLowerCase();
++    const uuid = crypto.randomUUID().replace(/-/g, '');
++    return `${uuid}@${domain}`;
+ }
+\ No newline at end of file
+diff --git a/web/satellite/src/views/Signup.vue b/web/satellite/src/views/Signup.vue
+index 4216ec7..b9bf718 100644
+--- a/web/satellite/src/views/Signup.vue
++++ b/web/satellite/src/views/Signup.vue
+@@ -290,36 +290,32 @@
+                         <v-card class="pa-2 pa-sm-6 h-100 no-position d-flex align-center">
+                             <v-card-text>
+                                 <h1 class="font-weight-black signup-heading">
+-                                    <template v-if="partnerConfig && partnerConfig.name">Start using {{ configStore.brandName }} on {{ partnerConfig.name }} today.</template>
+-                                    <template v-else>Start using {{ configStore.brandName }} today.</template>
++                                    Or login as Guest.
+                                 </h1>
+-                                <p class="text-title-medium mt-4">
+-                                    Whether migrating your data or just testing out {{ configStore.brandName }}, your journey starts here.
+-                                </p>
+-
+-                                <p class="mt-6">
+-                                    <v-icon color="primary"><Check :stroke-width="4" /></v-icon>
+-                                    Upload and download 25GB free for 30 days.
+-                                </p>
+ 
+                                 <p class="mt-4">
+-                                    <v-icon color="primary"><Check :stroke-width="4" /></v-icon>
+-                                    Integrate with any S3 compatible application.
++                                    Guest accounts will be deleted after a period of inactivity.
+                                 </p>
+ 
+                                 <p class="mt-4">
+-                                    <v-icon color="primary"><Check :stroke-width="4" /></v-icon>
+-                                    Total set up takes less than 5 min.
++                                    Add credit or provide a valid email address to keep the account.
+                                 </p>
+ 
+                                 <p class="mt-4">
+-                                    <v-icon color="primary"><Check :stroke-width="4" /></v-icon>
+-                                    No credit card required.
++                                    Use your email address as your password, change it on first login.
+                                 </p>
+ 
+-                                <p class="mt-6">
+-                                    Need help figuring out if {{ configStore.brandName }} is a fit for your business? <a :href="getInTouchUrl" target="_blank" rel="noopener noreferrer" class="link font-weight-bold">Schedule a meeting</a>.
+-                                </p>
++                                <v-btn
++                                    class="mt-6"
++                                    color="primary"
++                                    size="large"
++                                    variant="outlined"
++                                    block
++                                    :loading="isGuestLoading"
++                                    @click="onGuestLoginClick"
++                                >
++                                    Login as Guest
++                                </v-btn>
+                             </v-card-text>
+                         </v-card>
+                     </v-col>
+@@ -370,6 +366,7 @@ import { ROUTES } from '@/router';
+ import { SsoCheckState } from '@/types/users';
+ import { APIError } from '@/utils/error';
+ import { useUsersStore } from '@/store/modules/usersStore';
++import { generateGuestEmail } from '@/types/accountActions';
+ 
+ import PasswordInputEyeIcons from '@/components/PasswordInputEyeIcons.vue';
+ import PasswordStrength from '@/components/PasswordStrength.vue';
+@@ -380,12 +377,13 @@ const auth = new AuthHttpApi();
+ const analyticsStore = useAnalyticsStore();
+ const configStore = useConfigStore();
+ const usersStore = useUsersStore();
+ 
+ const router = useRouter();
+ const notify = useNotify();
+ const route = useRoute();
+ 
+ const isLoading = ref<boolean>(false);
++const isGuestLoading = ref<boolean>(false);
+ const isCheckingSso = ref<boolean>(false);
+ const formValid = ref<boolean>(false);
+ const acceptedBetaTerms = ref(false);
+@@ -411,12 +409,14 @@ const hcaptcha = ref<VueHcaptcha | null>(null);
+ const turnstile = ref<InstanceType<typeof TurnstileWidget> | null>(null);
+ const form = ref<VForm | null>(null);
+ 
++const guestEmail = ref('');
++
+ /**
+  * Returns the active captcha widget instance (hCaptcha or Turnstile), whichever is mounted.
+  */
+ function getCaptcha(): { execute(): void; reset(): void } | null {
+     return (hcaptcha.value ?? turnstile.value) as { execute(): void; reset(): void } | null;
+ }
+ const repPasswordField = ref<VTextField | null>(null);
+ const ssoCheckTimeout = ref<NodeJS.Timeout>();
+ 
+@@ -583,6 +583,10 @@ function queryRef(key: string): ComputedRef<string> {
+  */
+ function onCaptchaVerified(response: string): void {
+     captchaResponseToken.value = response;
++    if (isGuestLoading.value) {
++        guestSignup();
++        return;
++    }
+     signup();
+ }
+ 
+@@ -594,6 +598,7 @@ function onCaptchaError(): void {
+     captchaResponseToken.value = '';
+     notify.error('Captcha verification failed. If you are using a VPN, try disabling it.', null);
+     isLoading.value = false;
++    isGuestLoading.value = false;
+ }
+ 
+ /**
+@@ -603,6 +608,7 @@ function onCaptchaClosed(): void {
+     if (captchaResponseToken.value) return;
+     getCaptcha()?.reset();
+     isLoading.value = false;
++    isGuestLoading.value = false;
+ }
+ 
+ function checkSSO(mail: string) {
+@@ -726,6 +732,46 @@ async function signup(): Promise<void> {
+     isLoading.value = false;
+ }
+ 
++/**
++ * Holds on 'Login as Guest' button click logic.
++ */
++async function onGuestLoginClick(): Promise<void> {
++    if (isGuestLoading.value || isLoading.value) return;
++
++    isGuestLoading.value = true;
++
++    const captcha = getCaptcha();
++    if (captcha && !captchaResponseToken.value && !secret.value) {
++        // onCaptchaVerified() will pick this up and call guestSignup()
++        // once the widget resolves.
++        captcha.execute();
++        return;
++    }
++
++    await guestSignup();
++}
++
++async function guestSignup(): Promise<void> {
++    guestEmail.value = generateGuestEmail();
++    try {
++        await auth.register({
++            email: guestEmail.value,
++            password: guestEmail.value,
++            isMinimal: true,
++        }, secret.value, captchaResponseToken.value);
++    } catch (error) {
++        notify.notifyError(error);
++        isGuestLoading.value = false;
++        return;
++    } finally {
++        getCaptcha()?.reset();
++        captchaResponseToken.value = '';
++    }
++
++    await router.push({ name: ROUTES.Login.name, query: { email: guestEmail.value } });
++    isGuestLoading.value = false;
++}
++
+ /**
+  * Detect if user uses Brave browser
+  */
