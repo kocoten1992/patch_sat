@@ -1,0 +1,70 @@
+diff --git a/satellite/console/service.go b/satellite/console/service.go
+index c014c98..514966d 100644
+--- a/satellite/console/service.go
++++ b/satellite/console/service.go
+@@ -1746,6 +1754,14 @@ func (s *Service) CreateUser(ctx context.Context, user CreateUser, registrationT
+ 			}
+ 		}
+ 
++		if isGuestEmail(user.Email) {
++			active := Active
++			if err := tx.Users().Update(ctx, u.ID, UpdateUserRequest{Status: &active}); err != nil {
++				return err
++			}
++			u.Status = Active
++		}
++
+ 		return nil
+ 	})
+ 
+diff --git a/satellite/console/service_test.go b/satellite/console/service_test.go
+index 5ec6888..54f519e 100644
+--- a/satellite/console/service_test.go
++++ b/satellite/console/service_test.go
+@@ -5370,6 +5370,46 @@ func TestAbbreviatedDeleteAccount_WithDeleteThreshold(t *testing.T) {
+ 	})
+ }
+ 
++func TestCreateUserGuestEmailAutoActivates(t *testing.T) {
++	testplanet.Run(t, testplanet.Config{
++		SatelliteCount: 1,
++	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
++		sat := planet.Satellites[0]
++		service := sat.API.Console.Service
++
++		t.Run("guest email with no name", func(t *testing.T) {
++			user, err := service.CreateUser(ctx, console.CreateUser{
++				Email:       "11111111222233334444555566667777@example.net",
++				Password:    "11111111222233334444555566667777@example.net",
++				AllowNoName: true,
++			}, nil)
++			require.NoError(t, err)
++			require.Equal(t, console.Active, user.Status)
++		})
++
++		t.Run("non-guest email with no name", func(t *testing.T) {
++			user, err := service.CreateUser(ctx, console.CreateUser{
++				Email:       "no-name@mail.test",
++				Password:    "a-real-password",
++				AllowNoName: true,
++			}, nil)
++			require.NoError(t, err)
++			require.Equal(t, console.Inactive, user.Status)
++		})
++
++		t.Run("non-guest email", func(t *testing.T) {
++			user, err := service.CreateUser(ctx, console.CreateUser{
++				FullName: "Real Person",
++				Email:    "real-person@mail.test",
++				Password: "a-real-password",
++			}, nil)
++			require.NoError(t, err)
++			require.Equal(t, console.Inactive, user.Status)
++			require.Equal(t, "Real Person", user.FullName)
++		})
++	})
++}
++
+ func TestUpdateUserOnSignup(t *testing.T) {
+ 	testplanet.Run(t, testplanet.Config{
+ 		SatelliteCount: 1,
