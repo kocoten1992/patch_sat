@@ -1,0 +1,1 @@
+STORJ_TEST_POSTGRES = 'postgres://storjci@localhost:26257/benchstorj?sslmode=disable'

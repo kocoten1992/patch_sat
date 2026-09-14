@@ -1,0 +1,1 @@
+sh 'go test -parallel 9 -p 12 -vet=off $COVERFLAGS -timeout 120m -json -race ./... 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'

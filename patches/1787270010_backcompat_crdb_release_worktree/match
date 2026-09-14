@@ -1,0 +1,3 @@
+git worktree add -f "$RELEASE_DIR" "$latestReleaseCommit"
+
+# delete this file that forces production config settings

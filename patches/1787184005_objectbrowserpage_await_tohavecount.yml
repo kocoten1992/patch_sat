@@ -1,0 +1,16 @@
+id: objectbrowserpage-await-checksinglebreadcrumb-tohavecount
+language: TypeScript
+
+rule:
+  pattern: expect(items).toHaveCount(1);
+
+fix: await expect(items).toHaveCount(1);
+
+---
+id: objectbrowserpage-await-expectitems-tohavecount
+language: TypeScript
+
+rule:
+  pattern: expect(this.page.locator(ObjectBrowserPageObjects.TABLE_ROW_SELECTOR)).toHaveCount(names.length);
+
+fix: await expect(this.page.locator(ObjectBrowserPageObjects.TABLE_ROW_SELECTOR)).toHaveCount(names.length);

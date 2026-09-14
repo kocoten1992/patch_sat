@@ -1,0 +1,150 @@
+
+		require.True(t, console.ErrForbidden.Has(err))
+		require.Contains(t, err.Error(), "sso")
+	})
+}
+
+func TestChangeEmailGuestOldEmail(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Console.EmailChangeFlowEnabled = true
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		sat := planet.Satellites[0]
+		db := sat.DB
+		service := sat.API.Console.Service
+
+		setGuestEmail := func(userID uuid.UUID, guestEmail string) {
+			err := db.Console().Users().Update(ctx, userID, console.UpdateUserRequest{Email: &guestEmail})
+			require.NoError(t, err)
+		}
+
+		t.Run("without MFA", func(t *testing.T) {
+			usr, err := sat.AddUser(ctx, console.CreateUser{
+				FullName: "Guest Old Email No MFA",
+				Email:    "guest-no-mfa@mail.test",
+			}, 1)
+			require.NoError(t, err)
+
+			setGuestEmail(usr.ID, "placeholder-1@example.net")
+
+			updateContext := func() (context.Context, *console.User) {
+				userCtx, err := sat.UserContext(ctx, usr.ID)
+				require.NoError(t, err)
+				user, err := console.GetUser(userCtx)
+				require.NoError(t, err)
+				return userCtx, user
+			}
+			userCtx, _ := updateContext()
+
+			// password step should skip straight past the "verify old email" step,
+			// since there's no real address to send a code to.
+			err = service.ChangeEmail(userCtx, console.VerifyAccountPasswordStep, usr.FullName)
+			require.NoError(t, err)
+
+			userCtx, user := updateContext()
+			require.Equal(t, console.VerifyAccountEmailStep, user.EmailChangeVerificationStep)
+			require.Empty(t, user.ActivationCode)
+
+			// the new email step is now reachable directly.
+			newEmail := "real-address-1@mail.test"
+			err = service.ChangeEmail(userCtx, console.ChangeAccountEmailStep, newEmail)
+			require.NoError(t, err)
+
+			userCtx, user = updateContext()
+			require.Equal(t, console.ChangeAccountEmailStep, user.EmailChangeVerificationStep)
+			require.NotNil(t, user.NewUnverifiedEmail)
+			require.Equal(t, newEmail, *user.NewUnverifiedEmail)
+			require.NotEmpty(t, user.ActivationCode)
+
+			err = service.ChangeEmail(userCtx, console.VerifyNewAccountEmailStep, user.ActivationCode)
+			require.NoError(t, err)
+
+			_, user = updateContext()
+			require.Equal(t, newEmail, user.Email)
+			require.Equal(t, 0, user.EmailChangeVerificationStep)
+		})
+
+		t.Run("with MFA", func(t *testing.T) {
+			usr, err := sat.AddUser(ctx, console.CreateUser{
+				FullName: "Guest Old Email MFA",
+				Email:    "guest-mfa@mail.test",
+			}, 1)
+			require.NoError(t, err)
+
+			setGuestEmail(usr.ID, "placeholder-2@example.net")
+
+			updateContext := func() (context.Context, *console.User) {
+				userCtx, err := sat.UserContext(ctx, usr.ID)
+				require.NoError(t, err)
+				user, err := console.GetUser(userCtx)
+				require.NoError(t, err)
+				return userCtx, user
+			}
+			userCtx, _ := updateContext()
+
+			mfaSecret, err := service.ResetMFASecretKey(userCtx)
+			require.NoError(t, err)
+
+			now := time.Now()
+			goodCode, err := console.NewMFAPasscode(mfaSecret, now)
+			require.NoError(t, err)
+
+			err = service.EnableUserMFA(userCtx, goodCode, now)
+			require.NoError(t, err)
+
+			userCtx, _ = updateContext()
+
+			// with MFA enabled, the password step doesn't send an old-email code either way.
+			err = service.ChangeEmail(userCtx, console.VerifyAccountPasswordStep, usr.FullName)
+			require.NoError(t, err)
+
+			userCtx, user := updateContext()
+			require.Equal(t, console.VerifyAccountPasswordStep, user.EmailChangeVerificationStep)
+			require.Empty(t, user.ActivationCode)
+
+			// MFA is independent of the guest-email skip: a wrong passcode must still fail,
+			// even though the account's old email would otherwise let the step be skipped.
+			wrongCode, err := console.NewMFAPasscode(mfaSecret, now.Add(time.Hour))
+			require.NoError(t, err)
+
+			err = service.ChangeEmail(userCtx, console.VerifyAccountMfaStep, wrongCode)
+			require.Error(t, err)
+			require.True(t, console.ErrMFAPasscode.Has(err))
+
+			userCtx, user = updateContext()
+			require.Equal(t, console.VerifyAccountPasswordStep, user.EmailChangeVerificationStep)
+
+			// once MFA succeeds, it should skip straight past the "verify old email" step.
+			goodCode, err = console.NewMFAPasscode(mfaSecret, now)
+			require.NoError(t, err)
+
+			err = service.ChangeEmail(userCtx, console.VerifyAccountMfaStep, goodCode)
+			require.NoError(t, err)
+
+			userCtx, user = updateContext()
+			require.Equal(t, console.VerifyAccountEmailStep, user.EmailChangeVerificationStep)
+			require.Empty(t, user.ActivationCode)
+
+			// the new email step is now reachable directly.
+			newEmail := "real-address-2@mail.test"
+			err = service.ChangeEmail(userCtx, console.ChangeAccountEmailStep, newEmail)
+			require.NoError(t, err)
+
+			userCtx, user = updateContext()
+			require.NotEmpty(t, user.ActivationCode)
+
+			err = service.ChangeEmail(userCtx, console.VerifyNewAccountEmailStep, user.ActivationCode)
+			require.NoError(t, err)
+
+			_, user = updateContext()
+			require.Equal(t, newEmail, user.Email)
+			require.Equal(t, 0, user.EmailChangeVerificationStep)
+		})
+	})
+}
+
+func TestCreateProject_WithEntitlementsService(t *testing.T) {

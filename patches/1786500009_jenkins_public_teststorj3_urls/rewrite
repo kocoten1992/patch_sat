@@ -1,0 +1,2 @@
+STORJ_SIM_POSTGRES = 'postgres://storjci@localhost:26257/teststorj3?sslmode=disable'
+                        STORJ_MIGRATION_DB = 'postgres://storjci@localhost:26257/teststorj3?sslmode=disable&options=--search_path=satellite/0/meta'

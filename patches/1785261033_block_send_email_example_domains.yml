@@ -1,0 +1,37 @@
+id: sender-add-strings-import
+language: Go
+
+rule:
+  pattern: '"net/smtp"'
+  inside:
+    kind: import_declaration
+    stopBy: end
+
+fix: |-
+  "net/smtp"
+  	"strings"
+
+---
+id: sender-block-example-domains
+language: Go
+
+rule:
+  pattern: defer mon.Task()(&ctx)(&err)
+  inside:
+    stopBy: end
+    kind: method_declaration
+    has:
+      field: name
+      regex: ^SendEmail$
+
+fix: |-
+  defer mon.Task()(&ctx)(&err)
+
+  	for _, recipient := range msg.To {
+  		address := strings.ToUpper(recipient.Address)
+  		if strings.HasSuffix(address, "@EXAMPLE.COM") ||
+  			strings.HasSuffix(address, "@EXAMPLE.NET") ||
+  			strings.HasSuffix(address, "@EXAMPLE.ORG") {
+  			return nil
+  		}
+  	}

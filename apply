@@ -59,8 +59,6 @@ apply_comby_rule() {
 
 # git revert
 commits=(
-    # ci: remove CockroachDB and Spanner integration tests
-    # "40bb0c87b84fa05013136699fd4043af5f2283d1"
 )
 
 for commit in "${commits[@]}"; do
@@ -92,11 +90,11 @@ apply_rule /tmp/server-branding-rule.yml "$DIR/satellite/console/consoleweb" 6
 apply_rule /tmp/server-branding-rule.yml "$DIR/satellite/peer.go" 1
 
 apply_rule "$SCRIPT_DIR/patches/1784396915_migrate_crdb_fixups.yml" "$DIR/satellite/satellitedb/migrate.go" 3
-git -C $DIR apply "$SCRIPT_DIR/patches/1787270010_backcompat_crdb_release_worktree.patch"
+apply_comby_rule "$SCRIPT_DIR/patches/1787270010_backcompat_crdb_release_worktree" "$DIR/testsuite/backward-compatibility/start-sim.sh" 1
 apply_comby_rule "$SCRIPT_DIR/patches/1784884786_hide_remember_me" "$DIR/web/satellite/src/views/Login.vue" 1
 apply_rule "$SCRIPT_DIR/patches/1784889285_time_forever_duration.yml" "$DIR/web/satellite/src/utils/time.ts" 2
 apply_comby_rule "$SCRIPT_DIR/patches/1784889388_session_timeout_long_options" "$DIR/web/satellite/src/components/dialogs/SetSessionTimeoutDialog.vue" 1
-git -C $DIR apply "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domains.patch"
+apply_rule "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domains.yml" "$DIR/private/post/sender.go" 2
 
 # patch postgres to use cockroachdb feature
 apply_rule "$SCRIPT_DIR/patches/1786433401_postgres_aost_impl.yml" "$DIR/shared/dbutil/impl.go" 4
@@ -117,12 +115,43 @@ apply_rule "$SCRIPT_DIR/patches/1786946015_tagsql_name_pgretry.yml" "$DIR/shared
 apply_rule "$SCRIPT_DIR/patches/1786946020_metabase_postgres_pgretry_driver.yml" "$DIR/satellite/metabase/db.go" 2
 
 # guest email feature
-git -C $DIR apply "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email.patch"
+apply_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/ts_add_isguestemail.yml" "$DIR/web/satellite/src/types/accountActions.ts" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/vue_import" "$DIR/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/vue_computed" "$DIR/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/vue_ifelse" "$DIR/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/vue_2fa_step" "$DIR/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue" 1
+apply_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/go_isguestemail.yml" "$DIR/satellite/console/service.go" 1
+apply_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/go_password_step.yml" "$DIR/satellite/console/service.go" 1
+apply_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/go_mfa_step.yml" "$DIR/satellite/console/service.go" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1788728646_skip_otp_for_guest_email/go_test_insert" "$DIR/satellite/console/service_test.go" 1
 git -C $DIR apply "$SCRIPT_DIR/patches/1788835073_guest_signup_engine.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1788835074_guest_signup_frontend.patch"
 
 # jenkinsfile.public
-git -C $DIR apply "$SCRIPT_DIR/patches/1786500000_jenkins_public_crdb.patch"
+apply_comby_rule "$SCRIPT_DIR/patches/1786500000_jenkins_public_ci_image" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500001_jenkins_public_goflags" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500002_jenkins_public_crdb_start" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500003_jenkins_public_tests_stage_comment" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500004_jenkins_public_backcompat_tuning_insert" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500005_jenkins_public_teststorj_url" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500006_jenkins_public_uitestpostgres_url" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500007_jenkins_public_benchstorj_url" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500008_jenkins_public_teststorj2_url" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500009_jenkins_public_teststorj3_urls" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500010_jenkins_public_teststorj6_url" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500011_jenkins_public_createdb_teststorj" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500012_jenkins_public_createdb_uitestpostgres" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500013_jenkins_public_createdb_benchstorj" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500014_jenkins_public_createdb_teststorj2" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500015_jenkins_public_createdb_teststorj3" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500016_jenkins_public_createdb_teststorj6" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500017_jenkins_public_tests_stage_env_additions" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500018_jenkins_public_test_timeout" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500019_jenkins_public_benchmark_db_pool" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1786500020_jenkins_public_backcompat_db_pool" "$DIR/Jenkinsfile.public" 1
+mkdir -p "$DIR/scripts"
+cp "$SCRIPT_DIR/patches/1786500021_jenkins_public_cockroach_tuning_sql/content" "$DIR/scripts/cockroach-ci-tuning.sql"
+
 apply_rule "$SCRIPT_DIR/patches/1788293604_backcomp_test_go117_goflags.yml" "$DIR/cmd/uplink/backcomp_test.go" 1
 
 # tmp patches
@@ -134,7 +163,7 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1786665620_satellitedbtest_database_pool.
 git -C $DIR apply "$SCRIPT_DIR/patches/1786665630_satellitedb_schema_reset_test.patch"
 
 # flaky test (database pool)
-git -C $DIR apply "$SCRIPT_DIR/patches/1787184000_buckets_test_hoist_email.patch"
-git -C $DIR apply "$SCRIPT_DIR/patches/1787184005_objectbrowserpage_await_tohavecount.patch"
+apply_comby_rule "$SCRIPT_DIR/patches/1787184000_buckets_test_hoist_email" "$DIR/testsuite/playwright-ui/tests/default/buckets.test.ts" 1
+apply_rule "$SCRIPT_DIR/patches/1787184005_objectbrowserpage_await_tohavecount.yml" "$DIR/testsuite/playwright-ui/pageFactory/pageRepository/ObjectBrowserPage.ts" 2
 
 gofmt -w "$DIR"

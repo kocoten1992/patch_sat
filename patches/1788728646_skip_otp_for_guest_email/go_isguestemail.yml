@@ -1,0 +1,22 @@
+id: service-add-isguestemail
+language: Go
+
+rule:
+  kind: comment
+  regex: '^// DeleteAccount handles self-serve account delete actions\.$'
+
+fix: |-
+  var guestEmailDomains = map[string]struct{}{
+  	"EXAMPLE.NET": {},
+  }
+
+  func isGuestEmail(email string) bool {
+  	_, domain, ok := strings.Cut(email, "@")
+  	if !ok {
+  		return false
+  	}
+  	_, isGuest := guestEmailDomains[strings.ToUpper(domain)]
+  	return isGuest
+  }
+
+  // DeleteAccount handles self-serve account delete actions.

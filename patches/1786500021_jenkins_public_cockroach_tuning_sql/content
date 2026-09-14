@@ -1,0 +1,22 @@
+-- The `root` user is exempt from `ALTER ROLE ... SET` defaults (it only honours
+-- session variables passed in the connection string). CI therefore connects as
+-- a dedicated non-root role so the defaults below actually take effect.
+CREATE USER IF NOT EXISTS storjci;
+GRANT admin TO storjci;
+
+ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
+
+-- Without this, CockroachDB >= v25.1 auto-commits before every DDL statement,
+-- which breaks migrations that drop and re-add a primary key in one transaction
+-- (e.g. satellitedb migrate v227, bucket_bandwidth_rollups_pk).
+ALTER ROLE ALL SET autocommit_before_ddl = false;
+ALTER ROLE storjci SET autocommit_before_ddl = false;
+
+SET CLUSTER SETTING jobs.registry.interval.gc = '2m';
+SET CLUSTER SETTING jobs.retention_time = '10m';
+SET CLUSTER SETTING kv.mvcc_gc.queue_interval = '0s';
+SET CLUSTER SETTING kv.range_merge.queue_interval = '0s';
+SET CLUSTER SETTING sql.defaults.create_table_with_schema_locked = false;
+SET CLUSTER SETTING sql.gc_job.wait_for_gc.interval = '30s';
+SET CLUSTER SETTING sql.schema.approx_max_object_count = 500000;
+SET CLUSTER SETTING sql.stats.automatic_collection.enabled = false;

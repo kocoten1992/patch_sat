@@ -1,0 +1,3 @@
+STORJ_TEST_TIDB = 'omit'
+
+                STORJ_TEST_LOG_LEVEL = 'info'

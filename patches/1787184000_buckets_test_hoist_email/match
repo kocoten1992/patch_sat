@@ -1,0 +1,13 @@
+test.describe('buckets', () => {
+    let userCreated = false;
+
+    test.beforeEach(async ({
+        signupPage,
+        loginPage,
+        navigationMenu,
+    }) => {
+        const email = `${uuidv4()}@test.test`;
+        const password = 'password';
+        const passphrase = '1';
+
+        if (!userCreated) {

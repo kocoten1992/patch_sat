@@ -1,0 +1,3 @@
+const user = computed<User>(() => userStore.state.user);
+
+async function proceed

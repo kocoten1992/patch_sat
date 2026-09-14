@@ -1,0 +1,38 @@
+// This fork runs CockroachDB through the postgres:// code path, so
+                        // every STORJ_*_POSTGRES url below is a CockroachDB database served
+                        // over pgwire. Real PostgreSQL is deliberately not started.
+                        //
+                        // http-addr is outside the 1024-10000 range that use-ports claims later.
+                        //
+                        // No backslash line continuations below: inside a Groovy triple-quoted
+                        // string a trailing backslash is eaten by Groovy, not passed to sh.
+                        sh '''
+                            rm -rf /tmp/crdb
+
+                            JENKINS_NODE_COOKIE=dontKillMe nohup cockroach start-single-node --insecure --store=/tmp/crdb --listen-addr=localhost:26257 --http-addr=localhost:28080 > /dev/null 2>&1 &
+
+                            ready=0
+                            for _ in $(seq 1 20); do
+                                if cockroach sql --insecure --host=localhost:26257 -e 'SELECT 1' > /dev/null 2>&1; then
+                                    cockroach version
+                                    ready=1
+                                    break
+                                fi
+                                sleep 1
+                            done
+
+                            if [ "$ready" -ne 1 ]; then
+                                echo 'cockroach did not start accepting connections in time' >&2
+                                exit 1
+                            fi
+
+                            cockroach sql --insecure --host=localhost:26257 -f scripts/cockroach-ci-tuning.sql
+
+                            # Guard against silently losing the tuning again: `ALTER ROLE ALL SET`
+                            # is ignored for `root`, so assert on the role CI actually connects as.
+                            autocommit=$(cockroach sql --insecure --url 'postgres://storjci@localhost:26257/defaultdb?sslmode=disable' --format=csv -e 'SHOW autocommit_before_ddl' | tail -n 1)
+                            if [ "$autocommit" != "off" ] && [ "$autocommit" != "false" ]; then
+                                echo "autocommit_before_ddl is '$autocommit' for storjci, expected off" >&2
+                                exit 1
+                            fi
+                        '''

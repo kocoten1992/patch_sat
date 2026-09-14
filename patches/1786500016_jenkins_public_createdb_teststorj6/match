@@ -1,0 +1,1 @@
+sh 'psql -U postgres -c \'create database teststorj6;\''

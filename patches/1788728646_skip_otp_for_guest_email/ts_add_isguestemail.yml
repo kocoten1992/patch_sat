@@ -1,0 +1,18 @@
+id: accountactions-add-isguestemail
+language: TypeScript
+
+rule:
+  pattern: export const SKIP_OBJECT_LOCK_ENABLED_BUCKETS = 'skip-object-lock-enabled-buckets';
+
+fix: |-
+  export const SKIP_OBJECT_LOCK_ENABLED_BUCKETS = 'skip-object-lock-enabled-buckets';
+
+  const GUEST_EMAIL_DOMAINS = new Set(['EXAMPLE.NET']);
+
+  export function isGuestEmail(email: string): boolean {
+      const atIdx = email.lastIndexOf('@');
+      if (atIdx === -1) {
+          return false;
+      }
+      return GUEST_EMAIL_DOMAINS.has(email.slice(atIdx + 1).toUpperCase());
+  }

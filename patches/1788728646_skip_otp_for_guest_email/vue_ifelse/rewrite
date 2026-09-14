@@ -1,0 +1,7 @@
+if (user.value.isMFAEnabled) {
+                    step.value = ChangeEmailStep.Verify2faStep;
+                } else if (skipOldEmailVerification.value) {
+                    step.value = ChangeEmailStep.SetNewEmailStep;
+                } else {
+                    step.value = ChangeEmailStep.VerifyOldEmailStep;
+                }

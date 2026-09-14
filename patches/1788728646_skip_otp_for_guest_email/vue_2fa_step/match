@@ -1,0 +1,3 @@
+await userStore.changeEmail(ChangeEmailStep.Verify2faStep, code2fa.value.trim());
+
+                step.value = ChangeEmailStep.VerifyOldEmailStep;

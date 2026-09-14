@@ -1,0 +1,7 @@
+
+		require.True(t, console.ErrForbidden.Has(err))
+		require.Contains(t, err.Error(), "sso")
+	})
+}
+
+func TestCreateProject_WithEntitlementsService(t *testing.T) {

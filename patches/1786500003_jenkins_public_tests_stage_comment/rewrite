@@ -1,0 +1,6 @@
+STORJ_TEST_HOST = '127.0.0.20;127.0.0.21;127.0.0.22;127.0.0.23;127.0.0.24;127.0.0.25'
+
+                // This fork runs CockroachDB through the postgres:// code path
+                // (see patch_sat/patches/1786433*). STORJ_TEST_COCKROACH stays
+                // omitted so the cockroach:// path is not exercised.
+                STORJ_TEST_COCKROACH = 'omit'

@@ -1,0 +1,3 @@
+STORJ_CONSOLE_SIGNUP_ACTIVATION_CODE_ENABLED = 'false'
+
+                        STORJ_TEST_DB_POOL = 'true'

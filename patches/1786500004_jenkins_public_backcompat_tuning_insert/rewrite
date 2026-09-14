@@ -1,0 +1,2 @@
+sh 'cockroach sql --insecure --host=localhost:26257 -f scripts/cockroach-ci-tuning.sql'
+                        sh 'psql -U postgres -c \'create database teststorj3;\''

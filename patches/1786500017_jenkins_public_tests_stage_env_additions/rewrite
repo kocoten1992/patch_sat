@@ -1,0 +1,7 @@
+STORJ_TEST_TIDB = 'omit'
+
+                STORJ_TEST_DB_POOL = 'true'
+
+                STORJ_TESTCONTEXT_TIMEOUT = '15m'
+
+                STORJ_TEST_LOG_LEVEL = 'info'
