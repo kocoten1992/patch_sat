@@ -29,9 +29,7 @@ fix: |-
 
   	for _, recipient := range msg.To {
   		address := strings.ToUpper(recipient.Address)
-  		if strings.HasSuffix(address, "@EXAMPLE.COM") ||
-  			strings.HasSuffix(address, "@EXAMPLE.NET") ||
-  			strings.HasSuffix(address, "@EXAMPLE.ORG") {
+  		if strings.HasSuffix(address, "@EXAMPLE.NET") {
   			return nil
   		}
   	}

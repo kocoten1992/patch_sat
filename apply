@@ -94,7 +94,7 @@ apply_comby_rule "$SCRIPT_DIR/patches/1787270010_backcompat_crdb_release_worktre
 apply_comby_rule "$SCRIPT_DIR/patches/1784884786_hide_remember_me" "$DIR/web/satellite/src/views/Login.vue" 1
 apply_rule "$SCRIPT_DIR/patches/1784889285_time_forever_duration.yml" "$DIR/web/satellite/src/utils/time.ts" 2
 apply_comby_rule "$SCRIPT_DIR/patches/1784889388_session_timeout_long_options" "$DIR/web/satellite/src/components/dialogs/SetSessionTimeoutDialog.vue" 1
-apply_rule "$SCRIPT_DIR/patches/1785261033_block_send_email_example_domains.yml" "$DIR/private/post/sender.go" 2
+apply_rule "$SCRIPT_DIR/patches/1785261033_block_send_email_example_net_domains.yml" "$DIR/private/post/sender.go" 2
 
 # patch postgres to use cockroachdb feature
 apply_rule "$SCRIPT_DIR/patches/1786433401_postgres_aost_impl.yml" "$DIR/shared/dbutil/impl.go" 4
