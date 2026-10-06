@@ -1,3 +1,55 @@
+diff --git a/web/satellite/src/api/auth.ts b/web/satellite/src/api/auth.ts
+index da67519..8d7f33c 100644
+--- a/web/satellite/src/api/auth.ts
++++ b/web/satellite/src/api/auth.ts
+@@ -556,6 +556,47 @@ export class AuthHttpApi implements UsersApi {
+         });
+     }
+ 
++    /**
++     * Used to register a guest account. Guest accounts are activated on creation and
++     * the satellite starts the session (sets the auth cookie) in the same response,
++     * so no separate login request is needed.
++     *
++     * @param email - generated guest email
++     * @param password - guest password
++     * @param secret - registration token
++     * @param captchaResponse - captcha response token
++     * @returns token info of the started session, or null if the satellite did not start one
++     * @throws Error
++     */
++    public async registerGuest(email: string, password: string, secret: string, captchaResponse: string): Promise<TokenInfo | null> {
++        const path = `${this.ROOT_PATH}/register`;
++        const body = {
++            secret,
++            email,
++            password,
++            captchaResponse,
++            isMinimal: true,
++        };
++
++        const response = await this.http.post(path, JSON.stringify(body));
++        if (response.ok) {
++            const text = await response.text();
++            if (!text) return null;
++
++            const result = JSON.parse(text);
++            if (!result.token) return null;
++
++            return new TokenInfo(result.token, new Date(result.expiresAt));
++        }
++
++        const result = await response.json();
++        throw new APIError({
++            status: response.status,
++            message: result.error || 'Cannot register guest user',
++            requestID: response.headers.get('x-request-id'),
++        });
++    }
++
+     /**
+      * Used to enable user's MFA.
+      *
 diff --git a/web/satellite/src/types/accountActions.ts b/web/satellite/src/types/accountActions.ts
 index d4f1372..acb36d0 100644
 --- a/web/satellite/src/types/accountActions.ts
@@ -16,10 +68,10 @@ index d4f1372..acb36d0 100644
  }
 \ No newline at end of file
 diff --git a/web/satellite/src/views/Signup.vue b/web/satellite/src/views/Signup.vue
-index 4216ec7..b9bf718 100644
+index 4216ec7..3b07343 100644
 --- a/web/satellite/src/views/Signup.vue
 +++ b/web/satellite/src/views/Signup.vue
-@@ -290,36 +290,32 @@
+@@ -290,36 +290,28 @@
                          <v-card class="pa-2 pa-sm-6 h-100 no-position d-flex align-center">
                              <v-card-text>
                                  <h1 class="font-weight-black signup-heading">
@@ -48,12 +100,11 @@ index 4216ec7..b9bf718 100644
 +                                    Add credit or provide a valid email address to keep the account.
                                  </p>
  
-                                 <p class="mt-4">
+-                                <p class="mt-4">
 -                                    <v-icon color="primary"><Check :stroke-width="4" /></v-icon>
 -                                    No credit card required.
-+                                    Use your email address as your password, change it on first login.
-                                 </p>
- 
+-                                </p>
+-
 -                                <p class="mt-6">
 -                                    Need help figuring out if {{ configStore.brandName }} is a fit for your business? <a :href="getInTouchUrl" target="_blank" rel="noopener noreferrer" class="link font-weight-bold">Schedule a meeting</a>.
 -                                </p>
@@ -71,18 +122,25 @@ index 4216ec7..b9bf718 100644
                              </v-card-text>
                          </v-card>
                      </v-col>
-@@ -370,6 +366,7 @@ import { ROUTES } from '@/router';
- import { SsoCheckState } from '@/types/users';
+@@ -367,9 +363,12 @@ import { useNotify } from '@/composables/useNotify';
+ import { useAnalyticsStore } from '@/store/modules/analyticsStore';
+ import { AnalyticsEvent } from '@/utils/constants/analyticsEventNames';
+ import { ROUTES } from '@/router';
+-import { SsoCheckState } from '@/types/users';
++import { type TokenInfo, SsoCheckState } from '@/types/users';
  import { APIError } from '@/utils/error';
  import { useUsersStore } from '@/store/modules/usersStore';
++import { useAppStore } from '@/store/modules/appStore';
++import { LocalData } from '@/utils/localData';
 +import { generateGuestEmail } from '@/types/accountActions';
  
  import PasswordInputEyeIcons from '@/components/PasswordInputEyeIcons.vue';
  import PasswordStrength from '@/components/PasswordStrength.vue';
-@@ -380,12 +377,13 @@ const auth = new AuthHttpApi();
+@@ -380,12 +379,14 @@ const auth = new AuthHttpApi();
  const analyticsStore = useAnalyticsStore();
  const configStore = useConfigStore();
  const usersStore = useUsersStore();
++const appStore = useAppStore();
  
  const router = useRouter();
  const notify = useNotify();
@@ -93,22 +151,7 @@ index 4216ec7..b9bf718 100644
  const isCheckingSso = ref<boolean>(false);
  const formValid = ref<boolean>(false);
  const acceptedBetaTerms = ref(false);
-@@ -411,12 +409,14 @@ const hcaptcha = ref<VueHcaptcha | null>(null);
- const turnstile = ref<InstanceType<typeof TurnstileWidget> | null>(null);
- const form = ref<VForm | null>(null);
- 
-+const guestEmail = ref('');
-+
- /**
-  * Returns the active captcha widget instance (hCaptcha or Turnstile), whichever is mounted.
-  */
- function getCaptcha(): { execute(): void; reset(): void } | null {
-     return (hcaptcha.value ?? turnstile.value) as { execute(): void; reset(): void } | null;
- }
- const repPasswordField = ref<VTextField | null>(null);
- const ssoCheckTimeout = ref<NodeJS.Timeout>();
- 
-@@ -583,6 +583,10 @@ function queryRef(key: string): ComputedRef<string> {
+@@ -583,6 +584,10 @@ function queryRef(key: string): ComputedRef<string> {
   */
  function onCaptchaVerified(response: string): void {
      captchaResponseToken.value = response;
@@ -119,7 +162,7 @@ index 4216ec7..b9bf718 100644
      signup();
  }
  
-@@ -594,6 +598,7 @@ function onCaptchaError(): void {
+@@ -594,6 +599,7 @@ function onCaptchaError(): void {
      captchaResponseToken.value = '';
      notify.error('Captcha verification failed. If you are using a VPN, try disabling it.', null);
      isLoading.value = false;
@@ -127,7 +170,7 @@ index 4216ec7..b9bf718 100644
  }
  
  /**
-@@ -603,6 +608,7 @@ function onCaptchaClosed(): void {
+@@ -603,6 +609,7 @@ function onCaptchaClosed(): void {
      if (captchaResponseToken.value) return;
      getCaptcha()?.reset();
      isLoading.value = false;
@@ -135,7 +178,7 @@ index 4216ec7..b9bf718 100644
  }
  
  function checkSSO(mail: string) {
-@@ -726,6 +732,46 @@ async function signup(): Promise<void> {
+@@ -726,6 +733,60 @@ async function signup(): Promise<void> {
      isLoading.value = false;
  }
  
@@ -158,14 +201,17 @@ index 4216ec7..b9bf718 100644
 +    await guestSignup();
 +}
 +
++/**
++ * Creates a guest account and starts its session right away (no login step).
++ */
 +async function guestSignup(): Promise<void> {
-+    guestEmail.value = generateGuestEmail();
++    const guestEmail = generateGuestEmail();
++
++    let tokenInfo: TokenInfo | null;
 +    try {
-+        await auth.register({
-+            email: guestEmail.value,
-+            password: guestEmail.value,
-+            isMinimal: true,
-+        }, secret.value, captchaResponseToken.value);
++        // The guest account is activated on creation and the satellite sets
++        // the session cookie in the same response.
++        tokenInfo = await auth.registerGuest(guestEmail, guestEmail, secret.value, captchaResponseToken.value);
 +    } catch (error) {
 +        notify.notifyError(error);
 +        isGuestLoading.value = false;
@@ -175,7 +221,18 @@ index 4216ec7..b9bf718 100644
 +        captchaResponseToken.value = '';
 +    }
 +
-+    await router.push({ name: ROUTES.Login.name, query: { email: guestEmail.value } });
++    if (!tokenInfo) {
++        notify.error('Could not start a guest session. Please try again.', null);
++        isGuestLoading.value = false;
++        return;
++    }
++
++    LocalData.setSessionExpirationDate(tokenInfo.expiresAt);
++    LocalData.removeSessionHasExpired();
++    appStore.toggleHasJustLoggedIn(true);
++    usersStore.login();
++
++    await router.push(ROUTES.Projects.path);
 +    isGuestLoading.value = false;
 +}
 +

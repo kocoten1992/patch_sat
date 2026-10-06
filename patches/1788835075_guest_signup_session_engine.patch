@@ -1,0 +1,164 @@
+diff --git a/satellite/console/consoleweb/consoleapi/auth.go b/satellite/console/consoleweb/consoleapi/auth.go
+index fcfa4f6..3ce6266 100644
+--- a/satellite/console/consoleweb/consoleapi/auth.go
++++ b/satellite/console/consoleweb/consoleapi/auth.go
+@@ -990,6 +990,39 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
+ 		}
+ 	}
+ 
++	// Guest accounts are activated on creation (see Service.CreateUser), so there is
++	// no activation e-mail to wait for. Start the session right away, the same way
++	// ActivateAccount does after a successful activation.
++	if user.Status == console.Active {
++		var tokenInfo *console.TokenInfo
++		tokenInfo, err = a.service.GenerateSessionToken(ctx, console.SessionTokenRequest{
++			UserID:          user.ID,
++			TenantID:        user.TenantID,
++			Email:           user.Email,
++			IP:              ip,
++			UserAgent:       r.UserAgent(),
++			AnonymousID:     LoadAjsAnonymousID(r),
++			CustomDuration:  nil,
++			HubspotObjectID: user.HubspotObjectID,
++		})
++		if err != nil {
++			a.serveJSONError(ctx, w, err)
++			return
++		}
++
++		a.cookieAuth.SetTokenCookie(w, *tokenInfo)
++
++		w.Header().Set("Content-Type", "application/json")
++		err = json.NewEncoder(w).Encode(struct {
++			console.TokenInfo
++			Token string `json:"token"`
++		}{*tokenInfo, tokenInfo.Token.String()})
++		if err != nil {
++			a.log.Error("could not encode token response", zap.Error(ErrAuthAPI.Wrap(err)))
++		}
++		return
++	}
++
+ 	if a.ActivationCodeEnabled {
+ 		a.mailService.SendRenderedAsync(
+ 			ctx,
+diff --git a/satellite/console/consoleweb/consoleapi/auth_test.go b/satellite/console/consoleweb/consoleapi/auth_test.go
+index 9db7a94..db301f0 100644
+--- a/satellite/console/consoleweb/consoleapi/auth_test.go
++++ b/satellite/console/consoleweb/consoleapi/auth_test.go
+@@ -1485,6 +1485,115 @@ func TestAuth_Register_PasswordLength(t *testing.T) {
+ 	})
+ }
+ 
++func TestAuth_Register_GuestStartsSession(t *testing.T) {
++	testplanet.Run(t, testplanet.Config{
++		SatelliteCount: 1,
++		Reconfigure: testplanet.Reconfigure{
++			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
++				config.Console.RateLimit.Burst = 10
++			},
++		},
++	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
++		sat := planet.Satellites[0]
++
++		consoleURL, err := url.Parse(sat.ConsoleURL())
++		require.NoError(t, err)
++
++		const tokenCookieName = "_tokenKey"
++
++		hasTokenCookie := func(jar http.CookieJar) bool {
++			for _, c := range jar.Cookies(consoleURL) {
++				if c.Name == tokenCookieName && c.Value != "" {
++					return true
++				}
++			}
++			return false
++		}
++
++		newClient := func() (*http.Client, http.CookieJar) {
++			jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: nil})
++			require.NoError(t, err)
++			return &http.Client{Jar: jar}, jar
++		}
++
++		register := func(client *http.Client, email, password string) []byte {
++			jsonBody, err := json.Marshal(map[string]any{
++				"email":     email,
++				"password":  password,
++				"isMinimal": true,
++			})
++			require.NoError(t, err)
++
++			req, err := http.NewRequestWithContext(ctx, http.MethodPost, sat.ConsoleURL()+"/api/v0/auth/register", bytes.NewBuffer(jsonBody))
++			require.NoError(t, err)
++			req.Header.Set("Content-Type", "application/json")
++
++			resp, err := client.Do(req)
++			require.NoError(t, err)
++			body, err := io.ReadAll(resp.Body)
++			require.NoError(t, err)
++			require.NoError(t, resp.Body.Close())
++			require.Equal(t, http.StatusOK, resp.StatusCode)
++
++			return body
++		}
++
++		guestEmail := "11111111222233334444555566667777@example.net"
++
++		t.Run("guest signup starts a session", func(t *testing.T) {
++			client, jar := newClient()
++
++			body := register(client, guestEmail, guestEmail)
++
++			var tokenInfo struct {
++				Token     string    `json:"token"`
++				ExpiresAt time.Time `json:"expiresAt"`
++			}
++			require.NoError(t, json.Unmarshal(body, &tokenInfo))
++			require.NotEmpty(t, tokenInfo.Token)
++			require.True(t, tokenInfo.ExpiresAt.After(time.Now()))
++			require.True(t, hasTokenCookie(jar))
++
++			user, err := sat.DB.Console().Users().GetByEmailAndTenant(ctx, guestEmail, nil)
++			require.NoError(t, err)
++			require.Equal(t, console.Active, user.Status)
++
++			sessions, err := sat.DB.Console().WebappSessions().GetAllByUserID(ctx, user.ID)
++			require.NoError(t, err)
++			require.Len(t, sessions, 1)
++
++			// the cookie alone must be enough to use the API, no login step.
++			req, err := http.NewRequestWithContext(ctx, http.MethodGet, sat.ConsoleURL()+"/api/v0/auth/account", nil)
++			require.NoError(t, err)
++			resp, err := client.Do(req)
++			require.NoError(t, err)
++			require.NoError(t, resp.Body.Close())
++			require.Equal(t, http.StatusOK, resp.StatusCode)
++		})
++
++		t.Run("existing guest email does not start a session", func(t *testing.T) {
++			client, jar := newClient()
++
++			body := register(client, guestEmail, "another-password-123")
++			require.Empty(t, body)
++			require.False(t, hasTokenCookie(jar))
++		})
++
++		t.Run("regular signup does not start a session", func(t *testing.T) {
++			client, jar := newClient()
++
++			body := register(client, "regular-user@mail.test", "password123")
++			require.Empty(t, body)
++			require.False(t, hasTokenCookie(jar))
++
++			_, unverified, err := sat.API.Console.Service.GetUserByEmailWithUnverified(ctx, "regular-user@mail.test")
++			require.NoError(t, err)
++			require.Len(t, unverified, 1)
++			require.Equal(t, console.Inactive, unverified[0].Status)
++		})
++	})
++}
++
+ func TestAccountActivationWithCode(t *testing.T) {
+ 	testplanet.Run(t, testplanet.Config{
+ 		SatelliteCount: 1,
