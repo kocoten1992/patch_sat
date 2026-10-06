@@ -151,6 +151,8 @@ apply_comby_rule "$SCRIPT_DIR/patches/1786500017_jenkins_public_tests_stage_env_
 apply_comby_rule "$SCRIPT_DIR/patches/1786500018_jenkins_public_test_timeout" "$DIR/Jenkinsfile.public" 1
 apply_comby_rule "$SCRIPT_DIR/patches/1786500019_jenkins_public_benchmark_db_pool" "$DIR/Jenkinsfile.public" 1
 apply_comby_rule "$SCRIPT_DIR/patches/1786500020_jenkins_public_backcompat_db_pool" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1791283814_jenkins_public_createdb_tidb" "$DIR/Jenkinsfile.public" 1
+apply_comby_rule "$SCRIPT_DIR/patches/1791283874_jenkins_public_tidb_master_url" "$DIR/Jenkinsfile.public" 1
 mkdir -p "$DIR/scripts"
 cp "$SCRIPT_DIR/patches/1786500021_jenkins_public_cockroach_tuning_sql/content" "$DIR/scripts/cockroach-ci-tuning.sql"
 

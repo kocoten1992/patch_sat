@@ -1,5 +1,5 @@
 STORJ_TEST_TIDB = 'omit'
 
-                STORJ_TEST_DB_POOL = 'true'
+                                STORJ_TEST_DB_POOL = 'true'
 
-                GOCACHE = '/root/.cache/go-build-benchmarks'
+                                GOCACHE = '/root/.cache/go-build-benchmarks'

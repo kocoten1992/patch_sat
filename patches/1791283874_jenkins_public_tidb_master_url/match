@@ -1,0 +1,1 @@
+STORJ_TEST_TIDB = 'tidb://root@127.0.0.1:4000/storj?parseTime=true!!master=postgres://postgres@localhost/tidb?sslmode=disable'
