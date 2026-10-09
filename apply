@@ -67,10 +67,6 @@ for commit in "${commits[@]}"; do
     fi
 done
 
-# optional stripe
-apply_rule "$SCRIPT_DIR/patches/1783440418_remove_stripe_client.yml" "$DIR/satellite/payments/stripe/mud.go" 1
-apply_rule "$SCRIPT_DIR/patches/1783432229_optional_stripe.yml" "$DIR/satellite/mud.go" 1
-
 # hijack branding
 BRANDING_NAME=$(yq '."console"."single-white-label"."name"' "$SCRIPT_DIR/config.yaml")
 BRANDING_NAME=${BRANDING_NAME#\"}
