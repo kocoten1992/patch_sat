@@ -169,3 +169,4 @@ apply_comby_rule "$SCRIPT_DIR/patches/1787184000_buckets_test_hoist_email" "$DIR
 apply_rule "$SCRIPT_DIR/patches/1787184005_objectbrowserpage_await_tohavecount.yml" "$DIR/testsuite/playwright-ui/pageFactory/pageRepository/ObjectBrowserPage.ts" 2
 
 gofmt -w "$DIR"
+go -C "$DIR" generate "./satellite/satellitedb/satellitedbhook"
