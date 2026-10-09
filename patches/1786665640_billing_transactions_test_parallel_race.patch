@@ -1,0 +1,28 @@
+diff --git a/satellite/payments/billing/transactions_test.go b/satellite/payments/billing/transactions_test.go
+index 9a4746541..d19fd1a52 100644
+--- a/satellite/payments/billing/transactions_test.go
++++ b/satellite/payments/billing/transactions_test.go
+@@ -315,6 +315,11 @@ func TestCompletePendingPayment(t *testing.T) {
+ 		Timestamp:   makeTimestamp().Add(time.Second),
+ 	}
+ 	satellitedbtest.Run(t, func(ctx *testcontext.Context, t *testing.T, db satellite.DB) {
++		// The closure runs once per database, in parallel, so it must not
++		// mutate the transactions shared with the other runs.
++		credit10TX := credit10TX
++		debit10TX := debit10TX
++
+ 		_, err := db.Billing().Insert(ctx, credit10TX)
+ 		require.NoError(t, err)
+ 		credit10TX.Status = payments.PaymentStatusConfirmed
+@@ -372,6 +377,11 @@ func TestFailPendingPayment(t *testing.T) {
+ 		Timestamp:   makeTimestamp().Add(time.Second),
+ 	}
+ 	satellitedbtest.Run(t, func(ctx *testcontext.Context, t *testing.T, db satellite.DB) {
++		// The closure runs once per database, in parallel, so it must not
++		// mutate the transactions shared with the other runs.
++		credit10TX := credit10TX
++		debit10TX := debit10TX
++
+ 		_, err := db.Billing().Insert(ctx, credit10TX)
+ 		require.NoError(t, err)
+ 		credit10TX.Status = payments.PaymentStatusConfirmed
