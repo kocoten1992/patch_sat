@@ -1,0 +1,79 @@
+diff --git a/satellite/metabase/alias_test.go b/satellite/metabase/alias_test.go
+index b8517de71..843a8128f 100644
+--- a/satellite/metabase/alias_test.go
++++ b/satellite/metabase/alias_test.go
+@@ -70,10 +70,23 @@ func TestNodeAliases(t *testing.T) {
+ 			aliases := metabasetest.ListNodeAliases{}.Check(ctx, t, db)
+ 			require.Len(t, aliases, 3)
+ 
+-			for _, entry := range aliases {
++			// The first alias handed out depends on the database: TiDB does not
++			// reset AUTO_INCREMENT on DELETE (see TestingDeleteAll), and a
++			// pooled test database may have been used by an earlier test. Only
++			// require that the aliases are small and close together.
++			var minAlias, maxAlias metabase.NodeAlias
++			for i, entry := range aliases {
+ 				require.True(t, nodesContains(nodes, entry.ID))
+-				require.LessOrEqual(t, int(entry.Alias), len(nodes))
++				require.Positive(t, entry.Alias)
++
++				if i == 0 || entry.Alias < minAlias {
++					minAlias = entry.Alias
++				}
++				if i == 0 || entry.Alias > maxAlias {
++					maxAlias = entry.Alias
++				}
+ 			}
++			require.Less(t, int(maxAlias-minAlias), len(nodes))
+ 
+ 			metabasetest.EnsureNodeAliases{
+ 				Opts: metabase.EnsureNodeAliases{
+diff --git a/satellite/metabase/aliascache_test.go b/satellite/metabase/aliascache_test.go
+index 4618e573f..7bb97af42 100644
+--- a/satellite/metabase/aliascache_test.go
++++ b/satellite/metabase/aliascache_test.go
+@@ -163,17 +163,24 @@ func TestNodeAliasCache_DB(t *testing.T) {
+ 
+ 			n1, n2 := testrand.NodeID(), testrand.NodeID()
+ 
++			// Do not assume the first alias is 1: TiDB does not reset
++			// AUTO_INCREMENT on DELETE and test databases can be reused.
+ 			aliases, err := cache.EnsureAliases(ctx, []storj.NodeID{n1})
+ 			require.NoError(t, err)
+-			require.Equal(t, []metabase.NodeAlias{1}, aliases)
++			require.Len(t, aliases, 1)
++			a1 := aliases[0]
++			require.Positive(t, a1)
+ 
+ 			aliases, err = cache.EnsureAliases(ctx, []storj.NodeID{n2})
+ 			require.NoError(t, err)
+-			require.Equal(t, []metabase.NodeAlias{2}, aliases)
++			require.Len(t, aliases, 1)
++			a2 := aliases[0]
++			require.Positive(t, a2)
++			require.NotEqual(t, a1, a2)
+ 
+ 			aliases, err = cache.EnsureAliases(ctx, []storj.NodeID{n1, n2})
+ 			require.NoError(t, err)
+-			require.Equal(t, []metabase.NodeAlias{1, 2}, aliases)
++			require.Equal(t, []metabase.NodeAlias{a1, a2}, aliases)
+ 
+ 			nodes, err := cache.Nodes(ctx, aliases)
+ 			require.NoError(t, err)
+diff --git a/satellite/satellitedb/satellitedbtest/pool.go b/satellite/satellitedb/satellitedbtest/pool.go
+index f74e6425a..7b137d3ae 100644
+--- a/satellite/satellitedb/satellitedbtest/pool.go
++++ b/satellite/satellitedb/satellitedbtest/pool.go
+@@ -75,7 +75,11 @@ var pool = &dbPool{
+ // it is opt-in per call site rather than on by default.
+ func openTestDB(ctx context.Context, log *zap.Logger, connURL, namePrefix, poolKey string) (*dbutil.TempDatabase, error) {
+ 	if *dbPoolEnabled && poolKey != "" {
+-		return pool.acquire(ctx, log, poolKey, connURL, namePrefix)
++		// A pooled database belongs to one backend. Tests for Postgres,
++		// Cockroach and TiDB run in parallel with the same caller-supplied
++		// poolKey, so the key must also include the connection URL, otherwise
++		// a TiDB database can be handed to a Postgres test (and vice versa).
++		return pool.acquire(ctx, log, poolKey+"|"+connURL, connURL, namePrefix)
+ 	}
+ 
+ 	tempDB, err := tempdb.OpenUnique(ctx, log, connURL, namePrefix)
