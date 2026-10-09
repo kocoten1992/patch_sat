@@ -1,0 +1,144 @@
+diff --git a/cmd/storj-sim/modular.go b/cmd/storj-sim/modular.go
+index 5e1dce2..cc65d12 100644
+--- a/cmd/storj-sim/modular.go
++++ b/cmd/storj-sim/modular.go
+@@ -45,7 +45,7 @@ type modularSatelliteParams struct {
+ // modularSatelliteConfig returns the configuration of the modular satellite. The modular satellite has no
+ // `setup` command and no dev defaults (--defaults dev), therefore everything a local network needs is listed here.
+ func modularSatelliteConfig(p modularSatelliteParams) map[string]string {
+-	return map[string]string{
++	config := map[string]string{
+ 		"log.level": "debug",
+ 		// the processes get their own --debug.addr on the command line, this is the fallback for `migrate`
+ 		// (which rejects the flag) and prevents a release config.yaml from sharing one debug port
+@@ -107,6 +107,66 @@ func modularSatelliteConfig(p modularSatelliteParams) map[string]string {
+ 		// the classic sim ran garbage collection with the dev default (disabled)
+ 		"garbage-collection.enabled": "false",
+ 	}
++	for key, value := range modularReadNowConfig {
++		config[key] = value
++	}
++	return config
++}
++
++// modularReadNowConfig disables the "AS OF SYSTEM TIME" staleness of the modular satellite (CockroachDB reads data
++// as of some time in the past). The classic sim ran with --defaults dev, which makes all of them (almost) zero, but
++// the modular satellite has no dev defaults and uses the release ones (-5m for tally, zombie deletion, ranged loop,
++// -10s for the node cache). A database that was created less than that ago does not exist yet as of that time, so
++// CockroachDB answers `database "..." does not exist (SQLSTATE 3D000)`, and freshly checked-in nodes are invisible.
++// These values are the dev defaults of the classic satellite (0 where there is no dev default).
++var modularReadNowConfig = map[string]string{
++	"tally.as-of-system-interval":                     "-1us",
++	"zombie-deletion.as-of-system-interval":           "-1us",
++	"ranged-loop.as-of-system-interval":               "-1us",
++	"expired-deletion.as-of-system-interval":          "-1us",
++	"live-accounting.as-of-system-interval":           "-1us",
++	"console-db-cleanup.as-of-system-time-interval":   "0",
++	"overlay.as-of-system-time":                       "0",
++	"overlay.node.as-of-system-time.default-interval": "-1ms",
++}
++
++// overrideModularConfig sets the keys of overrides in an existing config.yaml, replacing a value that is already
++// there (ensureModularConfig keeps existing values, but the config.yaml of `satellite setup` of a previous release
++// may hold the release defaults). Comments and other keys are kept as they are.
++func overrideModularConfig(dir string, overrides map[string]string) error {
++	path := filepath.Join(dir, "config.yaml")
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return errs.Wrap(err)
++	}
++
++	var content strings.Builder
++	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
++		key, _, _ := strings.Cut(line, ":")
++		if _, ok := overrides[strings.TrimSpace(key)]; ok {
++			continue
++		}
++		content.WriteString(line)
++		content.WriteString("\n")
++	}
++	for _, key := range sortedKeys(overrides) {
++		line, err := yamlLine(key, overrides[key])
++		if err != nil {
++			return err
++		}
++		content.WriteString(line)
++	}
++	if content.String() == string(data) {
++		return nil
++	}
++
++	// the other satellite processes read this file while they start up, replace it atomically
++	// (a truncated file would be read as an empty configuration)
++	tmp := path + ".tmp"
++	if err := os.WriteFile(tmp, []byte(content.String()), 0644); err != nil {
++		return errs.Wrap(err)
++	}
++	return errs.Wrap(os.Rename(tmp, path))
+ }
+ 
+ // writeFlatYAML writes the config as flat `key: value` lines, the same shape as the config.yaml of `satellite setup`.
+diff --git a/cmd/storj-sim/modular_test.go b/cmd/storj-sim/modular_test.go
+index 432b876..1508954 100644
+--- a/cmd/storj-sim/modular_test.go
++++ b/cmd/storj-sim/modular_test.go
+@@ -123,6 +123,43 @@ func TestEnsureModularConfig(t *testing.T) {
+ 	require.Equal(t, string(before), string(after))
+ }
+ 
++func TestOverrideModularConfig(t *testing.T) {
++	dir := t.TempDir()
++	path := filepath.Join(dir, "config.yaml")
++
++	// a config.yaml created by `satellite setup` of a previous release, with a release default
++	classic := "# tally.as-of-system-interval: -5m0s\nserver.address: 127.0.0.1:10000\nranged-loop.as-of-system-interval: -5m0s\n"
++	require.NoError(t, os.WriteFile(path, []byte(classic), 0644))
++
++	require.NoError(t, overrideModularConfig(dir, modularReadNowConfig))
++
++	content, err := os.ReadFile(path)
++	require.NoError(t, err)
++	require.Contains(t, string(content), "# tally.as-of-system-interval: -5m0s\n", "comments must be kept")
++
++	var value string
++	require.NoError(t, readConfigString(&value, dir, "ranged-loop.as-of-system-interval"))
++	require.Equal(t, "-1us", value, "the existing value must be replaced")
++	require.NoError(t, readConfigString(&value, dir, "tally.as-of-system-interval"))
++	require.Equal(t, "-1us", value)
++	require.NoError(t, readConfigString(&value, dir, "server.address"))
++	require.Equal(t, "127.0.0.1:10000", value, "other keys must be kept")
++	// replaced, not duplicated (viper would fail on duplicate keys)
++	require.Equal(t, 1, countLines(t, content, "ranged-loop.as-of-system-interval:"))
++
++	// idempotent
++	require.NoError(t, overrideModularConfig(dir, modularReadNowConfig))
++	again, err := os.ReadFile(path)
++	require.NoError(t, err)
++	require.Equal(t, string(content), string(again))
++
++	// a config written by storj-sim already has the values
++	config := testModularConfig()
++	for key, expected := range modularReadNowConfig {
++		require.Equal(t, expected, config[key])
++	}
++}
++
+ func countLines(t *testing.T, content []byte, prefix string) int {
+ 	t.Helper()
+ 	count := 0
+diff --git a/cmd/storj-sim/network.go b/cmd/storj-sim/network.go
+index e3a73bd..da7574a 100644
+--- a/cmd/storj-sim/network.go
++++ b/cmd/storj-sim/network.go
+@@ -503,7 +503,10 @@ func newNetwork(flags *Flags) (*Processes, error) {
+ 			if err != nil {
+ 				return err
+ 			}
+-			return ensureModularConfig(process.Directory, config)
++			if err := ensureModularConfig(process.Directory, config); err != nil {
++				return err
++			}
++			return overrideModularConfig(process.Directory, modularReadNowConfig)
+ 		}
+ 
+ 		apiProcess.ExecBefore["run"] = func(process *Process) error {
