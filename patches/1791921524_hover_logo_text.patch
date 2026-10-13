@@ -1,0 +1,335 @@
+diff --git a/satellite/console/README.md b/satellite/console/README.md
+index a684231..172d01d 100644
+--- a/satellite/console/README.md
++++ b/satellite/console/README.md
+@@ -195,6 +195,8 @@ console:
+   single-white-label:
+     tenant-id: "my-brand"
+     name: "My Brand"
++    # optional: text typed out next to the logo (after "//") when hovering it
++    logo-hover-text: "mybrand"
+     external-address: "https://console.example.test"
+     logo-urls:
+       full-dark: "/static/static/images/whitelabel/mybrand/logo-full-dark.svg"
+diff --git a/satellite/console/config.go b/satellite/console/config.go
+index deba215..58158a5 100644
+--- a/satellite/console/config.go
++++ b/satellite/console/config.go
+@@ -615,6 +615,7 @@ type WhiteLabelConfig struct {
+ 	HostName            string            `yaml:"host-name,omitempty"`
+ 	ExternalAddress     string            `yaml:"external-address,omitempty"`
+ 	Name                string            `yaml:"name,omitempty"`
++	LogoHoverText       string            `yaml:"logo-hover-text,omitempty"`
+ 	LogoURLs            map[string]string `yaml:"logo-urls,omitempty"`
+ 	FaviconURLs         map[string]string `yaml:"favicon-urls,omitempty"`
+ 	Colors              map[string]string `yaml:"colors,omitempty"`
+diff --git a/satellite/console/consoleweb/config.go b/satellite/console/consoleweb/config.go
+index 847e0a9..4a037e0 100644
+--- a/satellite/console/consoleweb/config.go
++++ b/satellite/console/consoleweb/config.go
+@@ -139,6 +139,7 @@ type NewProjectPlacement struct {
+ // BrandingConfig holds branding configuration for the frontend.
+ type BrandingConfig struct {
+ 	Name              string            `json:"name"`
++	LogoHoverText     string            `json:"logoHoverText"`
+ 	LogoURLs          map[string]string `json:"logoUrls"`
+ 	FaviconURLs       map[string]string `json:"faviconUrls"`
+ 	Colors            map[string]string `json:"colors"`
+diff --git a/satellite/console/consoleweb/server.go b/satellite/console/consoleweb/server.go
+index 5bf284b..db8096c 100644
+--- a/satellite/console/consoleweb/server.go
++++ b/satellite/console/consoleweb/server.go
+@@ -1449,6 +1449,7 @@ func brandingFromWhiteLabelConfig(wlConfig console.WhiteLabelConfig, defaultHome
+ 
+ 	return BrandingConfig{
+ 		Name:              wlConfig.Name,
++		LogoHoverText:     wlConfig.LogoHoverText,
+ 		LogoURLs:          wlConfig.LogoURLs,
+ 		FaviconURLs:       wlConfig.FaviconURLs,
+ 		Colors:            wlConfig.Colors,
+diff --git a/web/satellite/src/api/config.ts b/web/satellite/src/api/config.ts
+index 5a9eb9f..eb6aabb 100644
+--- a/web/satellite/src/api/config.ts
++++ b/web/satellite/src/api/config.ts
+@@ -52,6 +52,7 @@ export class FrontendConfigHttpApi implements FrontendConfigApi {
+                 result.privacyPolicyUrl,
+                 result.termsOfServiceUrl,
+                 result.freeTrialsEnabled,
++                result.logoHoverText ?? '',
+             );
+         }
+ 
+diff --git a/web/satellite/src/components/utils/BrandLogo.vue b/web/satellite/src/components/utils/BrandLogo.vue
+new file mode 100644
+index 0000000..f58f4c7
+--- /dev/null
++++ b/web/satellite/src/components/utils/BrandLogo.vue
+@@ -0,0 +1,158 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
++<template>
++    <span ref="root" class="brand-logo">
++        <img :src="src" alt="Logo" class="logo-img">
++        <span v-if="displayed !== null" class="brand-logo__text" aria-hidden="true"><span class="brand-logo__sep">{{ separator }}</span>{{ displayed }}</span>
++    </span>
++</template>
++
++<script setup lang="ts">
++import { onBeforeUnmount, onMounted, ref } from 'vue';
++
++const props = withDefaults(defineProps<{
++    src: string;
++    // Text revealed next to the logo on hover. Empty disables the effect.
++    hoverText?: string;
++    // Shown before the text; not part of the logo and not part of the text.
++    separator?: string;
++}>(), {
++    hoverText: '',
++    separator: '//',
++});
++
++const SCRAMBLE_CHARS = '0123456789@#$%&';
++const REVEAL_MS = 1000;
++const HIDE_MS = 300;
++
++const root = ref<HTMLElement | null>(null);
++// null means hidden.
++const displayed = ref<string | null>(null);
++
++let frame = 0;
++let trigger: HTMLElement | null = null;
++
++function randomChar(): string {
++    return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
++}
++
++function reducedMotion(): boolean {
++    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
++}
++
++/**
++ * Returns animation progress in [0, 1]. requestAnimationFrame timestamps are
++ * taken at the start of the frame and can be earlier than a performance.now()
++ * read in an event handler, so the raw value may be slightly negative on the
++ * first frame. Unclamped, that made the first frame longer than the text.
++ */
++function progressOf(start: number, now: number, duration: number): number {
++    return Math.min(Math.max((now - start) / duration, 0), 1);
++}
++
++function cancel(): void {
++    if (frame) cancelAnimationFrame(frame);
++    frame = 0;
++}
++
++/**
++ * Decodes the text from left to right: the resolved prefix stays put while
++ * the remaining characters are re-randomized on every frame.
++ */
++function reveal(): void {
++    cancel();
++    const word = props.hoverText;
++    if (!word) return;
++    if (reducedMotion()) {
++        displayed.value = word;
++        return;
++    }
++
++    const start = performance.now();
++    const step = (now: number) => {
++        const progress = progressOf(start, now, REVEAL_MS);
++        if (progress >= 1) {
++            displayed.value = word;
++            frame = 0;
++            return;
++        }
++        const resolved = Math.floor(progress * word.length);
++        let out = word.slice(0, resolved);
++        for (let i = resolved; i < word.length; i++) {
++            out += word[i] === ' ' ? ' ' : randomChar();
++        }
++        displayed.value = out;
++        frame = requestAnimationFrame(step);
++    };
++    frame = requestAnimationFrame(step);
++}
++
++/**
++ * Removes the text quickly, from right to left.
++ */
++function hide(): void {
++    cancel();
++    const current = displayed.value;
++    if (current === null) return;
++    if (reducedMotion()) {
++        displayed.value = null;
++        return;
++    }
++
++    const start = performance.now();
++    const step = (now: number) => {
++        const progress = progressOf(start, now, HIDE_MS);
++        const remaining = Math.ceil(current.length * (1 - progress));
++        if (remaining <= 0) {
++            displayed.value = null;
++            frame = 0;
++            return;
++        }
++        displayed.value = current.slice(0, remaining);
++        frame = requestAnimationFrame(step);
++    };
++    frame = requestAnimationFrame(step);
++}
++
++onMounted(() => {
++    // Listen on the surrounding link/button, so the whole clickable area and
++    // keyboard focus trigger the effect, not only the image itself.
++    trigger = (root.value?.closest('a, button') as HTMLElement | null) ?? root.value;
++    if (!trigger) return;
++    trigger.addEventListener('mouseenter', reveal);
++    trigger.addEventListener('mouseleave', hide);
++    trigger.addEventListener('focus', reveal);
++    trigger.addEventListener('blur', hide);
++});
++
++onBeforeUnmount(() => {
++    cancel();
++    if (!trigger) return;
++    trigger.removeEventListener('mouseenter', reveal);
++    trigger.removeEventListener('mouseleave', hide);
++    trigger.removeEventListener('focus', reveal);
++    trigger.removeEventListener('blur', hide);
++});
++</script>
++
++<style scoped lang="scss">
++.brand-logo {
++    display: inline-flex;
++    align-items: center;
++    white-space: nowrap;
++
++    &__text {
++        margin-left: 2px;
++        font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
++        font-size: 20px;
++        font-weight: 500;
++        line-height: 1;
++        color: rgb(var(--v-theme-on-surface));
++    }
++
++    &__sep {
++        opacity: 0.5;
++    }
++}
++</style>
+diff --git a/web/satellite/src/layouts/auth/AuthBar.vue b/web/satellite/src/layouts/auth/AuthBar.vue
+index f192964..9a148e8 100644
+--- a/web/satellite/src/layouts/auth/AuthBar.vue
++++ b/web/satellite/src/layouts/auth/AuthBar.vue
+@@ -5,11 +5,10 @@
+     <v-app-bar :elevation="0" border="0" class="bg-background no-shadow">
+         <template #prepend>
+             <div class="d-flex flex-row align-center ml-2 ml-sm-3 mr-1 mt-n1">
+-                <img
++                <brand-logo
+                     :src="themeStore.globalTheme?.dark ? configStore.darkLogo : configStore.logo"
+-                    alt="Logo"
+-                    class="logo-img"
+-                >
++                    :hover-text="configStore.logoHoverText"
++                />
+                 <template v-if="partnerConfig && partnerConfig.partnerLogoTopUrl && route.name === ROUTES.Signup.name">
+                     <p class="mx-1">+</p>
+                     <a :href="partnerConfig.partnerUrl">
+@@ -97,6 +96,8 @@ import { ROUTES } from '@/router';
+ import { useThemeStore } from '@/store/modules/themeStore';
+ import { useConfigStore } from '@/store/modules/configStore';
+ 
++import BrandLogo from '@/components/utils/BrandLogo.vue';
++
+ const configStore = useConfigStore();
+ const themeStore = useThemeStore();
+ 
+diff --git a/web/satellite/src/layouts/shared/AppBar.vue b/web/satellite/src/layouts/shared/AppBar.vue
+index df34fe9..8a93891 100644
+--- a/web/satellite/src/layouts/shared/AppBar.vue
++++ b/web/satellite/src/layouts/shared/AppBar.vue
+@@ -16,13 +16,12 @@
+             @click.stop="appStore.toggleNavigationDrawer()"
+         />
+ 
+-        <v-app-bar-title class="mt-n1 ml-1 mr-2 flex-initial" :class="{ 'ml-4': !showNavDrawerButton }">
+-            <router-link :to="ROUTES.Projects.path">
+-                <img
++        <v-app-bar-title class="ml-1 mr-2 flex-initial" :class="{ 'ml-4': !showNavDrawerButton }">
++            <router-link :to="ROUTES.Projects.path" class="logo-link">
++                <brand-logo
+                     :src="themeStore.globalTheme?.dark ? configStore.darkLogo : configStore.logo"
+-                    alt="Logo"
+-                    class="logo-img"
+-                >
++                    :hover-text="configStore.logoHoverText"
++                />
+             </router-link>
+         </v-app-bar-title>
+ 
+@@ -220,6 +219,7 @@ import { useLogout } from '@/composables/useLogout';
+ import { useThemeStore } from '@/store/modules/themeStore';
+ import { AnalyticsErrorEventSource } from '@/utils/constants/analyticsEventNames';
+ 
++import BrandLogo from '@/components/utils/BrandLogo.vue';
+ import IconSatellite from '@/components/icons/IconSatellite.vue';
+ import AccountSetupDialog from '@/components/dialogs/AccountSetupDialog.vue';
+ import CreateFirstProjectDialog from '@/components/dialogs/CreateFirstProjectDialog.vue';
+@@ -324,6 +324,18 @@ async function onLogout(): Promise<void> {
+     flex: initial;
+ }
+ 
++// Block-level flex removes the line-box strut that misaligned the logo, and
++// text-decoration must be reset on the anchor itself: a descendant cannot
++// cancel an underline propagated from its parent, which showed up as an
++// underline under the animated text.
++
++.logo-link {
++    display: flex;
++    align-items: center;
++    line-height: 1;
++    text-decoration: none;
++}
++
+ :deep(.v-chip__content) {
+     display: inline-block !important;
+     white-space: nowrap;
+diff --git a/web/satellite/src/store/modules/configStore.ts b/web/satellite/src/store/modules/configStore.ts
+index b0525bc..01650f9 100644
+--- a/web/satellite/src/store/modules/configStore.ts
++++ b/web/satellite/src/store/modules/configStore.ts
+@@ -52,6 +52,7 @@ export const useConfigStore = defineStore('config', () => {
+     });
+ 
+     const brandName = computed<string>(() => state.branding.name);
++    const logoHoverText = computed<string>(() => state.branding.logoHoverText);
+     const supportUrl = computed<string>(() => state.branding.supportUrl);
+     const docsUrl = computed<string>(() => state.branding.docsUrl);
+     const homepageUrl = computed<string>(() => state.branding.homepageUrl);
+@@ -192,6 +193,7 @@ export const useConfigStore = defineStore('config', () => {
+         signupConfig,
+         onboardingConfig,
+         brandName,
++        logoHoverText,
+         supportUrl,
+         docsUrl,
+         homepageUrl,
+diff --git a/web/satellite/src/types/config.ts b/web/satellite/src/types/config.ts
+index f2c9f1b..f571582 100644
+--- a/web/satellite/src/types/config.ts
++++ b/web/satellite/src/types/config.ts
+@@ -88,6 +88,7 @@ export class BrandingConfig {
+         public privacyPolicyUrl: string = '',
+         public termsOfServiceUrl: string = '',
+         public freeTrialsEnabled: boolean = true,
++        public logoHoverText: string = '',
+     ) {}
+ 
+     public getColor(key: ColorKey): string | undefined {

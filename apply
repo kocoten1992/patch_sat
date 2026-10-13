@@ -130,6 +130,9 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1791284000_spam_hint_component.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1791284010_spam_hint_confirmation_views.patch"
 git -C $DIR apply "$SCRIPT_DIR/patches/1791284020_spam_hint_code_dialogs.patch"
 
+# hover logo text
+git -C $DIR apply "$SCRIPT_DIR/patches/1791921524_hover_logo_text.patch"
+
 # jenkinsfile.public
 apply_comby_rule "$SCRIPT_DIR/patches/1786500000_jenkins_public_ci_image" "$DIR/Jenkinsfile.public" 1
 apply_comby_rule "$SCRIPT_DIR/patches/1786500001_jenkins_public_goflags" "$DIR/Jenkinsfile.public" 1
