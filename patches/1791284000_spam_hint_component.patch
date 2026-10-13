@@ -1,0 +1,23 @@
+diff --git a/web/satellite/src/components/SpamFolderHint.vue b/web/satellite/src/components/SpamFolderHint.vue
+new file mode 100644
+index 0000000..871a23f
+--- /dev/null
++++ b/web/satellite/src/components/SpamFolderHint.vue
+@@ -0,0 +1,17 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
++<template>
++    <v-alert
++        variant="tonal"
++        color="info"
++        rounded="lg"
++        density="comfortable"
++    >
++        Can't find the email? It may take a few minutes to arrive. Please also check your <strong>spam</strong> or <strong>junk</strong> folder.
++    </v-alert>
++</template>
++
++<script setup lang="ts">
++import { VAlert } from 'vuetify/components';
++</script>

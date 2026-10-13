@@ -1,0 +1,70 @@
+diff --git a/web/satellite/src/views/PasswordResetConfirmation.vue b/web/satellite/src/views/PasswordResetConfirmation.vue
+index f5d77f5..41c8291 100644
+--- a/web/satellite/src/views/PasswordResetConfirmation.vue
++++ b/web/satellite/src/views/PasswordResetConfirmation.vue
+@@ -8,6 +8,7 @@
+                 <v-card title="Check your email" class="pa-2 pa-sm-6">
+                     <v-card-text>
+                         <p class="mb-4">We have sent you the password reset instructions to your email address.</p>
++                        <SpamFolderHint class="mb-4" />
+                         <v-btn color="primary" size="large" block router-link :to="ROUTES.Login.path">
+                             Go to login
+                         </v-btn>
+@@ -29,6 +30,8 @@ import { computed } from 'vue';
+ import { ROUTES } from '@/router';
+ import { useConfigStore } from '@/store/modules/configStore';
+ 
++import SpamFolderHint from '@/components/SpamFolderHint.vue';
++
+ const configStore = useConfigStore();
+ 
+ const supportLink = computed<string>(() => `${configStore.supportUrl}?ticket_form_id=360000379291`);
+diff --git a/web/satellite/src/views/SignupConfirmation.vue b/web/satellite/src/views/SignupConfirmation.vue
+index 670b4f9..45f97b5 100644
+--- a/web/satellite/src/views/SignupConfirmation.vue
++++ b/web/satellite/src/views/SignupConfirmation.vue
+@@ -14,6 +14,7 @@
+                     <p>
+                         Check your inbox to activate your account and get started.
+                     </p>
++                    <SpamFolderHint class="mt-4" />
+                     <v-btn
+                         class="my-5"
+                         size="large"
+@@ -59,6 +60,7 @@
+                             class="mt-1 mb-3"
+                             border
+                         />
++                        <SpamFolderHint v-if="signupId" class="mt-1 mb-3" />
+                         <v-form v-model="formValid" @submit.prevent="onFormSubmit">
+                             <v-card class="my-4 pa-6" rounded="lg" color="secondary" variant="outlined">
+                                 <template v-if="!queryEmail">
+@@ -187,6 +189,7 @@ import { ROUTES } from '@/router';
+ import type { MultiCaptchaConfig } from '@/types/config.gen';
+ import { EmailRule, RequiredRule } from '@/types/common';
+ 
++import SpamFolderHint from '@/components/SpamFolderHint.vue';
+ import TurnstileWidget from '@/components/TurnstileWidget.vue';
+ 
+ const auth: AuthHttpApi = new AuthHttpApi();
+diff --git a/web/satellite/src/views/SsoLinkConfirmation.vue b/web/satellite/src/views/SsoLinkConfirmation.vue
+index 6f33564..3d25c34 100644
+--- a/web/satellite/src/views/SsoLinkConfirmation.vue
++++ b/web/satellite/src/views/SsoLinkConfirmation.vue
+@@ -8,6 +8,7 @@
+                 <v-card class="pa-2 pa-sm-7">
+                     <h2 class="mb-3">Verify your email to finish linking</h2>
+                     <p>We sent a 6 digit verification code to your email address.</p>
++                    <SpamFolderHint class="mt-4" />
+                     <v-alert
+                         v-if="isUnauthorizedMessageShown"
+                         variant="tonal"
+@@ -74,6 +75,8 @@ import { useAppStore } from '@/store/modules/appStore';
+ import { LocalData } from '@/utils/localData';
+ import { ROUTES } from '@/router';
+ 
++import SpamFolderHint from '@/components/SpamFolderHint.vue';
++
+ const auth: AuthHttpApi = new AuthHttpApi();
+ const router = useRouter();
+ const notify = useNotify();

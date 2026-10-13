@@ -1,0 +1,71 @@
+diff --git a/web/satellite/src/components/dialogs/AccountDeleteDialog.vue b/web/satellite/src/components/dialogs/AccountDeleteDialog.vue
+index c7f1d26..f6170db 100644
+--- a/web/satellite/src/components/dialogs/AccountDeleteDialog.vue
++++ b/web/satellite/src/components/dialogs/AccountDeleteDialog.vue
+@@ -187,6 +187,7 @@
+                             <v-row>
+                                 <v-col>
+                                     <p>Enter the 6-digit code you received on email.</p>
++                                    <SpamFolderHint class="mt-4" />
+                                     <v-otp-input
+                                         ref="otpInputVerify"
+                                         :model-value="verifyEmailCode"
+@@ -347,6 +348,8 @@ import { RequiredRule } from '@/types/common';
+ import { AnalyticsErrorEventSource } from '@/utils/constants/analyticsEventNames';
+ import { useConfigStore } from '@/store/modules/configStore';
+ 
++import SpamFolderHint from '@/components/SpamFolderHint.vue';
++
+ const router = useRouter();
+ 
+ const deleteResp = ref<AccountDeletionData | null>(null);
+diff --git a/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue b/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue
+index b839c21..5c583ec 100644
+--- a/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue
++++ b/web/satellite/src/components/dialogs/AccountEmailChangeDialog.vue
+@@ -102,6 +102,7 @@
+                             <v-row>
+                                 <v-col>
+                                     <p>Enter the code you received on your old email.</p>
++                                    <SpamFolderHint class="mt-4" />
+                                     <v-otp-input
+                                         ref="otpInputVerifyOld"
+                                         :model-value="codeVerifyOld"
+@@ -140,6 +141,7 @@
+                             <v-row>
+                                 <v-col>
+                                     <p>Enter the code you received on your new email.</p>
++                                    <SpamFolderHint class="mt-4" />
+                                     <v-otp-input
+                                         ref="otpInputVerifyNew"
+                                         class="mt-6"
+@@ -241,6 +243,8 @@ import { useNotify } from '@/composables/useNotify';
+ import { AnalyticsErrorEventSource } from '@/utils/constants/analyticsEventNames';
+ import { useConfigStore } from '@/store/modules/configStore';
+ 
++import SpamFolderHint from '@/components/SpamFolderHint.vue';
++
+ const userStore = useUsersStore();
+ const configStore = useConfigStore();
+ 
+diff --git a/web/satellite/src/components/dialogs/DeleteProjectDialog.vue b/web/satellite/src/components/dialogs/DeleteProjectDialog.vue
+index 29e8643..6bd69cb 100644
+--- a/web/satellite/src/components/dialogs/DeleteProjectDialog.vue
++++ b/web/satellite/src/components/dialogs/DeleteProjectDialog.vue
+@@ -159,6 +159,7 @@
+                             <v-row>
+                                 <v-col>
+                                     <p>Enter the 6-digit code you received on email.</p>
++                                    <SpamFolderHint class="mt-4" />
+                                     <v-otp-input
+                                         ref="otpInputVerify"
+                                         :model-value="verifyEmailCode"
+@@ -296,6 +297,8 @@ import { useProjectsStore } from '@/store/modules/projectsStore';
+ import { RequiredRule } from '@/types/common';
+ import { AnalyticsErrorEventSource } from '@/utils/constants/analyticsEventNames';
+ 
++import SpamFolderHint from '@/components/SpamFolderHint.vue';
++
+ const router = useRouter();
+ 
+ const deleteResp = ref<ProjectDeletionData | null>(null);
