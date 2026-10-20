@@ -105,6 +105,9 @@ apply_rule "$SCRIPT_DIR/patches/1786433470_postgres_sha256_hex_cas.yml" "$DIR/sa
 apply_rule "$SCRIPT_DIR/patches/1786433480_pgutil_openunique_database.yml" "$DIR/shared/dbutil/pgutil/db.go" 3
 apply_rule "$SCRIPT_DIR/patches/1786433485_pgutil_openunique_test_database.yml" "$DIR/shared/dbutil/pgutil/openunique_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433495_multinode_nodes_test_skip_pagination.yml" "$DIR/multinode/nodes/nodes_test.go" 1
+# rollup archive: upstream batches by ctid on Postgres, cockroachdb has no ctid (use DELETE ... LIMIT)
+apply_rule "$SCRIPT_DIR/patches/1792000000_rollup_archive_crdb_no_ctid_project.yml" "$DIR/satellite/satellitedb/projectaccounting.go" 2
+apply_rule "$SCRIPT_DIR/patches/1792000001_rollup_archive_crdb_no_ctid_storagenode.yml" "$DIR/satellite/satellitedb/storagenodeaccounting.go" 2
 git -C $DIR apply "$SCRIPT_DIR/patches/1786946000_pgretry_driver.patch"
 apply_rule "$SCRIPT_DIR/patches/1786946010_tagsql_detect_pgretry.yml" "$DIR/shared/tagsql/detect.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786946015_tagsql_name_pgretry.yml" "$DIR/shared/tagsql/db.go" 1

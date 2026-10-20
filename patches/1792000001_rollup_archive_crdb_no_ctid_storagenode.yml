@@ -1,0 +1,52 @@
+# Same as 1792000000_rollup_archive_crdb_no_ctid_project.yml, for the storage
+# node bandwidth rollups: replace the `ctid` batch selection (unsupported by
+# CockroachDB) with DELETE ... LIMIT, keeping upstream's ON CONFLICT.
+#
+# Expected total match count: 2 (the query + the now-stale comment)
+
+id: storagenode-rollup-archive-crdb-no-ctid
+language: Go
+rule:
+  all:
+    - pattern: $LIT
+    - kind: raw_string_literal
+    - regex: 'ctid = ANY\(ARRAY\('
+    - inside:
+        stopBy: end
+        kind: method_declaration
+        regex: 'func \(db \*StoragenodeAccounting\) ArchiveRollupsBefore'
+transform:
+  # `$$N` is a literal `$N` (a bare `$1` in `fix` would be read as a metavariable)
+  NEWSQL:
+    replace:
+      source: $LIT
+      replace: '(?s)^.*$'
+      by: |-
+        `
+        			WITH rollups_to_move AS (
+        				DELETE FROM storagenode_bandwidth_rollups
+        				WHERE interval_start <= $$1
+        				LIMIT $$2 RETURNING *
+        			), moved_rollups AS (
+        				INSERT INTO storagenode_bandwidth_rollup_archives SELECT * FROM rollups_to_move
+        				ON CONFLICT (storagenode_id, interval_start, action) DO UPDATE SET
+        					allocated = EXCLUDED.allocated,
+        					settled = EXCLUDED.settled
+        				RETURNING *
+        			)
+        			SELECT count(*) FROM moved_rollups
+        		`
+fix: $NEWSQL
+
+---
+
+id: storagenode-rollup-archive-crdb-no-ctid-comment
+language: Go
+rule:
+  kind: comment
+  regex: 'so we select the batch by ctid'
+  inside:
+    stopBy: end
+    kind: method_declaration
+    regex: 'func \(db \*StoragenodeAccounting\) ArchiveRollupsBefore'
+fix: '// This runs on CockroachDB, which supports DELETE ... LIMIT and has no ctid.'

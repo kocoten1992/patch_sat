@@ -1,0 +1,62 @@
+# Upstream (commit 1ec981edf "archive rollups in batches on Postgres") picks the
+# archive batch on Postgres with `WHERE ctid = ANY(ARRAY(SELECT ctid ...))`,
+# because real Postgres has no DELETE ... LIMIT. CockroachDB has no `ctid`
+# column, so that query fails with `column "ctid" does not exist` and the
+# rollup archive chore would never archive anything.
+#
+# CockroachDB does support DELETE ... LIMIT (it is what the `Cockroach` case
+# already uses), so batch with that and keep upstream's `ON CONFLICT ... DO
+# UPDATE` so rows already present in the archive don't abort the batch. The
+# count is taken from `moved_rollups` (RETURNING *) so the INSERT CTE is always
+# referenced and therefore always executed.
+#
+# Expected total match count: 2 (the query + the now-stale comment)
+
+id: project-rollup-archive-crdb-no-ctid
+language: Go
+rule:
+  all:
+    - pattern: $LIT
+    - kind: raw_string_literal
+    - regex: 'ctid = ANY\(ARRAY\('
+    - inside:
+        stopBy: end
+        kind: method_declaration
+        regex: 'func \(db \*ProjectAccounting\) archiveRollupsBeforeByAction'
+transform:
+  # `$$N` is a literal `$N` (a bare `$1` in `fix` would be read as a metavariable)
+  NEWSQL:
+    replace:
+      source: $LIT
+      replace: '(?s)^.*$'
+      by: |-
+        `
+        			WITH rollups_to_move AS (
+        				DELETE FROM bucket_bandwidth_rollups
+        				WHERE action = $$1 AND interval_start <= $$2
+        				LIMIT $$3 RETURNING *
+        			), moved_rollups AS (
+        				INSERT INTO bucket_bandwidth_rollup_archives(bucket_name, project_id, interval_start, interval_seconds, action, inline, allocated, settled)
+        				SELECT bucket_name, project_id, interval_start, interval_seconds, action, inline, allocated, settled FROM rollups_to_move
+        				ON CONFLICT (bucket_name, project_id, interval_start, action) DO UPDATE SET
+        					allocated = EXCLUDED.allocated,
+        					settled = EXCLUDED.settled,
+        					inline = EXCLUDED.inline
+        				RETURNING *
+        			)
+        			SELECT count(*) FROM moved_rollups
+        		`
+fix: $NEWSQL
+
+---
+
+id: project-rollup-archive-crdb-no-ctid-comment
+language: Go
+rule:
+  kind: comment
+  regex: 'so we select the batch by ctid'
+  inside:
+    stopBy: end
+    kind: method_declaration
+    regex: 'func \(db \*ProjectAccounting\) archiveRollupsBeforeByAction'
+fix: '// This runs on CockroachDB, which supports DELETE ... LIMIT and has no ctid.'
