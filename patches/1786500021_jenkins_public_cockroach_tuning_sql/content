@@ -1,9 +1,13 @@
+-- Allowed for custom cluster setting
+\unset errexit
+
 -- The `root` user is exempt from `ALTER ROLE ... SET` defaults (it only honours
 -- session variables passed in the connection string). CI therefore connects as
 -- a dedicated non-root role so the defaults below actually take effect.
 CREATE USER IF NOT EXISTS storjci;
 GRANT admin TO storjci;
 
+ALTER DATABASE system CONFIGURE ZONE USING gc.ttlseconds = 60;
 ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
 
 -- Without this, CockroachDB >= v25.1 auto-commits before every DDL statement,
@@ -17,6 +21,10 @@ SET CLUSTER SETTING jobs.retention_time = '10m';
 SET CLUSTER SETTING kv.mvcc_gc.queue_interval = '0s';
 SET CLUSTER SETTING kv.range_merge.queue_interval = '0s';
 SET CLUSTER SETTING sql.defaults.create_table_with_schema_locked = false;
-SET CLUSTER SETTING sql.gc_job.wait_for_gc.interval = '30s';
 SET CLUSTER SETTING sql.schema.approx_max_object_count = 500000;
 SET CLUSTER SETTING sql.stats.automatic_collection.enabled = false;
+
+-- Fast create database/run test/drop database pattern
+SET CLUSTER SETTING sql.testing.fast_ddl.enabled = true; -- custom feature
+
+SELECT 1; -- make sure exit code is 0
