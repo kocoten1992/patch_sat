@@ -1,0 +1,26 @@
+# CockroachDB v26.4 changed how pg_indexes.indexdef renders covering indexes:
+# `STORING (b, c)` became `INCLUDE (b, c)` (the same way PostgreSQL does it).
+# pgutil's rxIndex only knows about STORING, so for a covering partial index the
+# optional `WHERE` group never matched and the partial predicate was returned
+# empty (pgutil_test.TestQuery: names_a_x got Partial "" instead of "(b != ...)").
+#
+# Accept both spellings.
+#
+# Expected total match count: 1
+
+id: pgutil-query-rxindex-include
+language: Go
+rule:
+  all:
+    - pattern: $LIT
+    - kind: raw_string_literal
+    - regex: 'USING btree .*STORING'
+    - not:
+        regex: 'INCLUDE'
+transform:
+  NEW:
+    replace:
+      source: $LIT
+      replace: '\(\?: STORING '
+      by: '(?: (?:STORING|INCLUDE) '
+fix: $NEW

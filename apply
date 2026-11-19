@@ -97,7 +97,10 @@ apply_rule "$SCRIPT_DIR/patches/1786433401_postgres_aost_impl.yml" "$DIR/shared/
 apply_rule "$SCRIPT_DIR/patches/1786433420_impl_test_postgres_aost.yml" "$DIR/shared/dbutil/impl_test.go" 11
 apply_rule "$SCRIPT_DIR/patches/1786433430_loop_test_postgres_fixed_read_timestamp.yml" "$DIR/satellite/metabase/loop_test.go" 2
 apply_rule "$SCRIPT_DIR/patches/1787270020_rangedloop_readtimestamp_test_crdb_postgres.yml" "$DIR/satellite/metabase/rangedloop/readtimestamp_test.go" 6
-apply_rule "$SCRIPT_DIR/patches/1786433435_pgutil_query_test_crdb_expectations.yml" "$DIR/shared/dbutil/pgutil/query_test.go" 2
+# TestQuery: one DDL + expectation for postgres and cockroachdb (cockroachdb-as-postgres prints the postgres form)
+git -C $DIR apply "$SCRIPT_DIR/patches/1793000010_pgutil_query_test_merge_pg_crdb.patch"
+# index definitions may use INCLUDE (...) instead of STORING (...)
+apply_rule "$SCRIPT_DIR/patches/1793000000_pgutil_query_crdb_include.yml" "$DIR/shared/dbutil/pgutil/query.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433440_migrate_test_crdb_concurrency.yml" "$DIR/satellite/satellitedb/migrate_test.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433450_metabase_stats_crdb.yml" "$DIR/satellite/metabase/stats.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433455_metabase_stats_test_crdb.yml" "$DIR/satellite/metabase/stats_test.go" 2

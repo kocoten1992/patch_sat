@@ -1,0 +1,107 @@
+diff --git a/shared/dbutil/pgutil/query_test.go b/shared/dbutil/pgutil/query_test.go
+index c590d6531..e80b91b68 100644
+--- a/shared/dbutil/pgutil/query_test.go
++++ b/shared/dbutil/pgutil/query_test.go
+@@ -4,6 +4,7 @@
+ package pgutil_test
+ 
+ import (
++	"strings"
+ 	"testing"
+ 
+ 	_ "github.com/jackc/pgx/v5/stdlib"
+@@ -12,7 +13,6 @@ import (
+ 	"go.uber.org/zap/zaptest"
+ 
+ 	"storj.io/common/testcontext"
+-	"storj.io/storj/shared/dbutil"
+ 	"storj.io/storj/shared/dbutil/dbschema"
+ 	"storj.io/storj/shared/dbutil/dbtest"
+ 	"storj.io/storj/shared/dbutil/pgutil"
+@@ -29,36 +29,10 @@ func TestQuery(t *testing.T) {
+ 		require.NoError(t, err)
+ 		assert.Equal(t, &dbschema.Schema{}, emptySchema)
+ 
+-		if db.Implementation != dbutil.Cockroach {
+-			_, err = db.ExecContext(ctx, `
+-			CREATE TABLE users (
+-				a bigint NOT NULL,
+-				b bigint NOT NULL,
+-				c text,
+-				UNIQUE (c),
+-				PRIMARY KEY (a)
+-			);
+-			CREATE TABLE names (
+-				users_a bigint REFERENCES users( a ) ON DELETE CASCADE,
+-				a text NOT NULL,
+-				x text,
+-				b text,
+-				c bigint,
+-				PRIMARY KEY (a, x),
+-				UNIQUE ( x ),
+-				UNIQUE ( a, b ),
+-				CONSTRAINT x_not_b CHECK (x != b)
+-			);
+-			CREATE INDEX users_a_b_c ON users (a, b DESC, c NULLS LAST) WHERE b > 10 AND c != '';
+-			CREATE INDEX names_a_x ON names (a ASC, x NULLS FIRST) WHERE b != '';
+-			CREATE INDEX names_b ON names (b);
+-			CREATE SEQUENCE node_alias_seq
+-				INCREMENT BY 1
+-				MINVALUE 1 MAXVALUE 2147483647 -- MaxInt32
+-				START WITH 1;
+-			`)
+-		} else {
+-			_, err = db.ExecContext(ctx, `
++		// The same DDL is used for PostgreSQL and CockroachDB. It sticks to the
++		// syntax both servers accept (NULLS FIRST is the CockroachDB default, and
++		// is accepted by PostgreSQL).
++		_, err = db.ExecContext(ctx, `
+ 			CREATE TABLE users (
+ 				a bigint NOT NULL,
+ 				b bigint NOT NULL,
+@@ -78,15 +52,13 @@ func TestQuery(t *testing.T) {
+ 				CONSTRAINT x_not_b CHECK (x <> b)
+ 			);
+ 			CREATE INDEX users_a_b_c ON users (a, b DESC, c NULLS FIRST) WHERE b > 10 AND c != '';
+-			CREATE INDEX names_a_x ON names (a ASC, x NULLS FIRST) STORING(b, c) WHERE b != '';
+-			CREATE INDEX names_b ON names (b) STORING (c);
++			CREATE INDEX names_a_x ON names (a ASC, x NULLS FIRST) INCLUDE (b, c) WHERE b != '';
++			CREATE INDEX names_b ON names (b);
+ 			CREATE SEQUENCE node_alias_seq
+ 				INCREMENT BY 1
+ 				MINVALUE 1 MAXVALUE 2147483647 -- MaxInt32
+ 				START WITH 1;
+ 			`)
+-		}
+-
+ 		require.NoError(t, err)
+ 
+ 		schema, err := pgutil.QuerySchema(ctx, db)
+@@ -148,18 +120,17 @@ func TestQuery(t *testing.T) {
+ 			Sequences: []string{"node_alias_seq"},
+ 		}
+ 
+-		if db.Implementation != dbutil.Cockroach {
+-			expected.Indexes = append(expected.Indexes,
+-				&dbschema.Index{Name: "users_a_b_c", Table: "users", Columns: []string{"a", "b", "c"}, Unique: false, Partial: "((b > 10) AND (c <> ''::text))"},
+-				&dbschema.Index{Name: "names_a_x", Table: "names", Columns: []string{"a", "x"}, Unique: false, Partial: "(b <> ''::text)"},
+-			)
+-		} else {
+-			expected.Indexes = append(expected.Indexes,
+-				&dbschema.Index{Name: "users_a_b_c", Table: "users", Columns: []string{"a", "b", "c"}, Unique: false, Partial: "((b > 10) AND (c != ''::STRING))"},
+-				&dbschema.Index{Name: "names_a_x", Table: "names", Columns: []string{"a", "x"}, Unique: false, Partial: "(b != ''::STRING)"},
+-			)
++		// PostgreSQL prints `<>` where CockroachDB prints `!=`, otherwise the
++		// partial predicates are identical.
++		for _, index := range schema.Indexes {
++			index.Partial = strings.ReplaceAll(index.Partial, "!=", "<>")
+ 		}
+ 
++		expected.Indexes = append(expected.Indexes,
++			&dbschema.Index{Name: "users_a_b_c", Table: "users", Columns: []string{"a", "b", "c"}, Unique: false, Partial: "((b > 10) AND (c <> ''::text))"},
++			&dbschema.Index{Name: "names_a_x", Table: "names", Columns: []string{"a", "x"}, Unique: false, Partial: "(b <> ''::text)"},
++		)
++
+ 		expected.Sort()
+ 		schema.Sort()
+ 		assert.Equal(t, expected, schema)
