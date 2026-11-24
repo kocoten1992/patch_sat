@@ -35,7 +35,7 @@ index 5ec6888..54f519e 100644
 +		t.Run("guest email with no name", func(t *testing.T) {
 +			user, err := service.CreateUser(ctx, console.CreateUser{
 +				Email:       "11111111222233334444555566667777@example.net",
-+				Password:    "11111111222233334444555566667777@example.net",
++				Password:    "random-guest-password",
 +				AllowNoName: true,
 +			}, nil)
 +			require.NoError(t, err)

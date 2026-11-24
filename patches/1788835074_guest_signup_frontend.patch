@@ -178,7 +178,7 @@ index 4216ec7..3b07343 100644
  }
  
  function checkSSO(mail: string) {
-@@ -726,6 +733,60 @@ async function signup(): Promise<void> {
+@@ -726,6 +733,62 @@ async function signup(): Promise<void> {
      isLoading.value = false;
  }
  
@@ -211,7 +211,9 @@ index 4216ec7..3b07343 100644
 +    try {
 +        // The guest account is activated on creation and the satellite sets
 +        // the session cookie in the same response.
-+        tokenInfo = await auth.registerGuest(guestEmail, guestEmail, secret.value, captchaResponseToken.value);
++        // The password is random and never stored or shown: the session is the guest's
++        // only credential until they set a password of their own.
++        tokenInfo = await auth.registerGuest(guestEmail, crypto.randomUUID(), secret.value, captchaResponseToken.value);
 +    } catch (error) {
 +        notify.notifyError(error);
 +        isGuestLoading.value = false;

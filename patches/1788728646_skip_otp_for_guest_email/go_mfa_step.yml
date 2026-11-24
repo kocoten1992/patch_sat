@@ -104,7 +104,7 @@ fix: |-
   		return ErrMFAPasscode.New(mfaPasscodeInvalidErrMsg)
   	}
 
-  	skipOldEmailVerification := action == changeEmailAction && isGuestEmail(user.Email)
+  	skipOldEmailVerification := isGuestEmail(user.Email)
 
   	step := VerifyAccountMfaStep
   	if skipOldEmailVerification {

@@ -108,7 +108,7 @@ index 9db7a94..db301f0 100644
 +		t.Run("guest signup starts a session", func(t *testing.T) {
 +			client, jar := newClient()
 +
-+			body := register(client, guestEmail, guestEmail)
++			body := register(client, guestEmail, "random-guest-password")
 +
 +			var tokenInfo struct {
 +				Token     string    `json:"token"`
