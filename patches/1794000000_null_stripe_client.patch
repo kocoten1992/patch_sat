@@ -1,0 +1,542 @@
+diff --git a/cmd/satellite/billing.go b/cmd/satellite/billing.go
+index 340241d13..512b0b404 100644
+--- a/cmd/satellite/billing.go
++++ b/cmd/satellite/billing.go
+@@ -55,6 +55,8 @@ func setupPayments(log *zap.Logger, db satellite.DB) (*stripe.Service, error) {
+ 			db.StripeCoinPayments().Customers(),
+ 			db.Console().Users(),
+ 		)
++	case "none": // no Stripe at all, see stripe.NewNullClient
++		stripeClient = stripe.NewNullClient()
+ 	case "stripecoinpayments":
+ 		stripeClient = stripe.NewStripeClient(log, pc.StripeCoinPayments)
+ 	default:
+diff --git a/satellite/admin.go b/satellite/admin.go
+index 19525c545..12f165489 100644
+--- a/satellite/admin.go
++++ b/satellite/admin.go
+@@ -204,6 +204,8 @@ func NewAdmin(log *zap.Logger, full *identity.FullIdentity, db DB, metabaseDB *m
+ 			)
+ 		case "mock":
+ 			stripeClient = pc.MockProvider
++		case "none": // no Stripe at all, see stripe.NewNullClient
++			stripeClient = stripe.NewNullClient()
+ 		case "stripecoinpayments":
+ 			stripeClient = stripe.NewStripeClient(log, pc.StripeCoinPayments)
+ 		default:
+diff --git a/satellite/api.go b/satellite/api.go
+index 65b7461b4..be5cc0e06 100644
+--- a/satellite/api.go
++++ b/satellite/api.go
+@@ -763,6 +763,8 @@ func NewAPI(log *zap.Logger, full *identity.FullIdentity, db DB,
+ 				)
+ 			case "mock":
+ 				stripeClient = pc.MockProvider
++			case "none": // no Stripe at all, see stripe.NewNullClient
++				stripeClient = stripe.NewNullClient()
+ 			case "stripecoinpayments":
+ 				stripeClient = stripe.NewStripeClient(log, pc.StripeCoinPayments)
+ 			default:
+diff --git a/satellite/console-api.go b/satellite/console-api.go
+index 2b7ed451c..1ecb9ffc4 100644
+--- a/satellite/console-api.go
++++ b/satellite/console-api.go
+@@ -430,6 +430,8 @@ func NewConsoleAPI(log *zap.Logger, full *identity.FullIdentity, db DB,
+ 			)
+ 		case "mock":
+ 			stripeClient = pc.MockProvider
++		case "none": // no Stripe at all, see stripe.NewNullClient
++			stripeClient = stripe.NewNullClient()
+ 		case "stripecoinpayments":
+ 			stripeClient = stripe.NewStripeClient(log, pc.StripeCoinPayments)
+ 		default:
+diff --git a/satellite/core.go b/satellite/core.go
+index a3058ce2b..8156cb091 100644
+--- a/satellite/core.go
++++ b/satellite/core.go
+@@ -564,6 +564,8 @@ func New(log *zap.Logger, full *identity.FullIdentity, db DB, metabaseDB *metaba
+ 			)
+ 		case "mock":
+ 			stripeClient = pc.MockProvider
++		case "none": // no Stripe at all, see stripe.NewNullClient
++			stripeClient = stripe.NewNullClient()
+ 		case "stripecoinpayments":
+ 			stripeClient = stripe.NewStripeClient(log, pc.StripeCoinPayments)
+ 		default:
+diff --git a/satellite/payments/stripe/mud.go b/satellite/payments/stripe/mud.go
+index 01ee85f8d..d822b72da 100644
+--- a/satellite/payments/stripe/mud.go
++++ b/satellite/payments/stripe/mud.go
+@@ -45,11 +45,13 @@ func Module(ball *mud.Ball) {
+ }
+ 
+ // clientModule registers the Client implementations. The real client is the default, the mock can be selected
+-// with --components 'stripe.Client=*stripe.mockStripeClient'.
++// with --components 'stripe.Client=*stripe.mockStripeClient', the null client (no Stripe at all) with
++// --components 'stripe.Client=*stripe.nullStripeClient'.
+ func clientModule(ball *mud.Ball) {
+ 	mud.Provide[*stripeClient](ball, newStripeClient)
+ 	mud.Provide[*mockStripeClient](ball, func(db DB, usersDB console.Users) *mockStripeClient {
+ 		return newStripeMock(db.Customers(), usersDB)
+ 	})
++	mud.Provide[*nullStripeClient](ball, newNullClient)
+ 	mud.RegisterInterfaceImplementation[Client, *stripeClient](ball)
+ }
+diff --git a/satellite/payments/stripe/nullclient.go b/satellite/payments/stripe/nullclient.go
+new file mode 100644
+index 000000000..d57270dc5
+--- /dev/null
++++ b/satellite/payments/stripe/nullclient.go
+@@ -0,0 +1,225 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
++package stripe
++
++import (
++	"github.com/stripe/stripe-go/v81"
++	"github.com/stripe/stripe-go/v81/charge"
++	"github.com/stripe/stripe-go/v81/customer"
++	"github.com/stripe/stripe-go/v81/customerbalancetransaction"
++	"github.com/stripe/stripe-go/v81/form"
++	"github.com/stripe/stripe-go/v81/invoice"
++	"github.com/stripe/stripe-go/v81/invoiceitem"
++	"github.com/stripe/stripe-go/v81/paymentmethod"
++	"github.com/stripe/stripe-go/v81/promotioncode"
++
++	"storj.io/common/uuid"
++)
++
++// ErrNullClient is returned by the null Stripe client for every operation that would create or move
++// money, so that nothing silently pretends to have charged, invoiced or credited a customer.
++var ErrNullClient = Error.New("payments provider is \"none\": Stripe is not available")
++
++// NullCustomerIDPrefix is the prefix of the customer IDs created by the null Stripe client.
++const NullCustomerIDPrefix = "cus_null_"
++
++// NewNullClient creates a Stripe client that never talks to Stripe and keeps no state.
++//
++// It's meant for satellites that don't use Stripe at all (payments.provider: none), so that the
++// pricing parts of the payments service keep working:
++//   - creating a customer succeeds with an ID like "cus_null_<uuid>", and customers can be read and
++//     updated (an empty customer is returned),
++//   - every list is empty,
++//   - every operation that would create or move money, or that refers to an object that can't
++//     exist (an invoice, a card, ...), fails with ErrNullClient.
++func NewNullClient() Client {
++	return newNullClient()
++}
++
++func newNullClient() *nullStripeClient {
++	return &nullStripeClient{}
++}
++
++type nullStripeClient struct{}
++
++func (nullStripeClient) Customers() Customers           { return nullCustomers{} }
++func (nullStripeClient) PaymentMethods() PaymentMethods { return nullPaymentMethods{} }
++func (nullStripeClient) PaymentIntents() PaymentIntents { return nullPaymentIntents{} }
++func (nullStripeClient) SetupIntents() SetupIntents     { return nullSetupIntents{} }
++func (nullStripeClient) Invoices() Invoices             { return nullInvoices{} }
++func (nullStripeClient) InvoiceItems() InvoiceItems     { return nullInvoiceItems{} }
++func (nullStripeClient) CustomerBalanceTransactions() CustomerBalanceTransactions {
++	return nullCustomerBalanceTransactions{}
++}
++func (nullStripeClient) Charges() Charges         { return nullCharges{} }
++func (nullStripeClient) PromoCodes() PromoCodes   { return nullPromoCodes{} }
++func (nullStripeClient) CreditNotes() CreditNotes { return nullCreditNotes{} }
++func (nullStripeClient) TaxIDs() TaxIDs           { return nullTaxIDs{} }
++
++// nullEmptyQuery is a list query with no results.
++func nullEmptyQuery(*stripe.Params, *form.Values) ([]interface{}, stripe.ListContainer, error) {
++	return nil, newListContainer(&stripe.ListMeta{}), nil
++}
++
++type nullCustomers struct{}
++
++func (nullCustomers) New(params *stripe.CustomerParams) (*stripe.Customer, error) {
++	id, err := uuid.New()
++	if err != nil {
++		return nil, Error.Wrap(err)
++	}
++	cus := &stripe.Customer{ID: NullCustomerIDPrefix + id.String()}
++	if params != nil && params.Email != nil {
++		cus.Email = *params.Email
++	}
++	return cus, nil
++}
++
++func (nullCustomers) Get(id string, params *stripe.CustomerParams) (*stripe.Customer, error) {
++	return &stripe.Customer{ID: id}, nil
++}
++
++func (nullCustomers) Update(id string, params *stripe.CustomerParams) (*stripe.Customer, error) {
++	cus := &stripe.Customer{ID: id}
++	if params != nil && params.Email != nil {
++		cus.Email = *params.Email
++	}
++	return cus, nil
++}
++
++func (nullCustomers) List(listParams *stripe.CustomerListParams) *customer.Iter {
++	return &customer.Iter{Iter: stripe.GetIter(listParams, nullEmptyQuery)}
++}
++
++type nullPaymentMethods struct{}
++
++func (nullPaymentMethods) List(listParams *stripe.PaymentMethodListParams) *paymentmethod.Iter {
++	return &paymentmethod.Iter{Iter: stripe.GetIter(listParams, nullEmptyQuery)}
++}
++
++func (nullPaymentMethods) New(params *stripe.PaymentMethodParams) (*stripe.PaymentMethod, error) {
++	return nil, ErrNullClient
++}
++
++func (nullPaymentMethods) Update(id string, params *stripe.PaymentMethodParams) (*stripe.PaymentMethod, error) {
++	return nil, ErrNullClient
++}
++
++func (nullPaymentMethods) Get(id string, params *stripe.PaymentMethodParams) (*stripe.PaymentMethod, error) {
++	return nil, ErrNullClient
++}
++
++func (nullPaymentMethods) Attach(id string, params *stripe.PaymentMethodAttachParams) (*stripe.PaymentMethod, error) {
++	return nil, ErrNullClient
++}
++
++func (nullPaymentMethods) Detach(id string, params *stripe.PaymentMethodDetachParams) (*stripe.PaymentMethod, error) {
++	return nil, ErrNullClient
++}
++
++type nullPaymentIntents struct{}
++
++func (nullPaymentIntents) New(params *stripe.PaymentIntentParams) (*stripe.PaymentIntent, error) {
++	return nil, ErrNullClient
++}
++
++type nullSetupIntents struct{}
++
++func (nullSetupIntents) New(params *stripe.SetupIntentParams) (*stripe.SetupIntent, error) {
++	return nil, ErrNullClient
++}
++
++type nullInvoices struct{}
++
++func (nullInvoices) New(params *stripe.InvoiceParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) List(listParams *stripe.InvoiceListParams) *invoice.Iter {
++	return &invoice.Iter{Iter: stripe.GetIter(listParams, nullEmptyQuery)}
++}
++
++func (nullInvoices) Update(id string, params *stripe.InvoiceParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) FinalizeInvoice(id string, params *stripe.InvoiceFinalizeInvoiceParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) Pay(id string, params *stripe.InvoicePayParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) Del(id string, params *stripe.InvoiceParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) Get(id string, params *stripe.InvoiceParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) MarkUncollectible(id string, params *stripe.InvoiceMarkUncollectibleParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoices) VoidInvoice(id string, params *stripe.InvoiceVoidInvoiceParams) (*stripe.Invoice, error) {
++	return nil, ErrNullClient
++}
++
++type nullInvoiceItems struct{}
++
++func (nullInvoiceItems) New(params *stripe.InvoiceItemParams) (*stripe.InvoiceItem, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoiceItems) Update(id string, params *stripe.InvoiceItemParams) (*stripe.InvoiceItem, error) {
++	return nil, ErrNullClient
++}
++
++func (nullInvoiceItems) List(listParams *stripe.InvoiceItemListParams) *invoiceitem.Iter {
++	return &invoiceitem.Iter{Iter: stripe.GetIter(listParams, nullEmptyQuery)}
++}
++
++func (nullInvoiceItems) Del(id string, params *stripe.InvoiceItemParams) (*stripe.InvoiceItem, error) {
++	return nil, ErrNullClient
++}
++
++type nullCustomerBalanceTransactions struct{}
++
++func (nullCustomerBalanceTransactions) New(params *stripe.CustomerBalanceTransactionParams) (*stripe.CustomerBalanceTransaction, error) {
++	return nil, ErrNullClient
++}
++
++func (nullCustomerBalanceTransactions) List(listParams *stripe.CustomerBalanceTransactionListParams) *customerbalancetransaction.Iter {
++	return &customerbalancetransaction.Iter{Iter: stripe.GetIter(listParams, nullEmptyQuery)}
++}
++
++type nullCharges struct{}
++
++func (nullCharges) List(listParams *stripe.ChargeListParams) *charge.Iter {
++	return &charge.Iter{Iter: stripe.GetIter(listParams, nullEmptyQuery)}
++}
++
++type nullPromoCodes struct{}
++
++func (nullPromoCodes) List(params *stripe.PromotionCodeListParams) *promotioncode.Iter {
++	return &promotioncode.Iter{Iter: stripe.GetIter(params, nullEmptyQuery)}
++}
++
++type nullCreditNotes struct{}
++
++func (nullCreditNotes) New(params *stripe.CreditNoteParams) (*stripe.CreditNote, error) {
++	return nil, ErrNullClient
++}
++
++type nullTaxIDs struct{}
++
++func (nullTaxIDs) New(params *stripe.TaxIDParams) (*stripe.TaxID, error) {
++	return nil, ErrNullClient
++}
++
++func (nullTaxIDs) Del(id string, params *stripe.TaxIDParams) (*stripe.TaxID, error) {
++	return nil, ErrNullClient
++}
+diff --git a/satellite/payments/stripe/nullclient_test.go b/satellite/payments/stripe/nullclient_test.go
+new file mode 100644
+index 000000000..6b14c00db
+--- /dev/null
++++ b/satellite/payments/stripe/nullclient_test.go
+@@ -0,0 +1,221 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
++package stripe_test
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++	stripeapi "github.com/stripe/stripe-go/v81"
++	"go.uber.org/zap/zaptest"
++
++	"storj.io/common/testcontext"
++	"storj.io/common/testrand"
++	"storj.io/storj/private/testplanet"
++	"storj.io/storj/satellite/console"
++	"storj.io/storj/satellite/payments/paymentsconfig"
++	"storj.io/storj/satellite/payments/stripe"
++)
++
++func TestNullClient(t *testing.T) {
++	client := stripe.NewNullClient()
++
++	cus, err := client.Customers().New(&stripeapi.CustomerParams{Email: stripeapi.String("user@example.test")})
++	require.NoError(t, err)
++	require.True(t, strings.HasPrefix(cus.ID, stripe.NullCustomerIDPrefix), cus.ID)
++	require.Equal(t, "user@example.test", cus.Email)
++
++	other, err := client.Customers().New(nil)
++	require.NoError(t, err)
++	require.NotEqual(t, cus.ID, other.ID)
++
++	got, err := client.Customers().Get(cus.ID, nil)
++	require.NoError(t, err)
++	require.Equal(t, cus.ID, got.ID)
++
++	updated, err := client.Customers().Update(cus.ID, &stripeapi.CustomerParams{Email: stripeapi.String("new@example.test")})
++	require.NoError(t, err)
++	require.Equal(t, "new@example.test", updated.Email)
++
++	// every list is empty.
++	customers := client.Customers().List(&stripeapi.CustomerListParams{})
++	require.False(t, customers.Next())
++	require.NoError(t, customers.Err())
++
++	paymentMethods := client.PaymentMethods().List(&stripeapi.PaymentMethodListParams{})
++	require.False(t, paymentMethods.Next())
++	require.NoError(t, paymentMethods.Err())
++
++	invoices := client.Invoices().List(&stripeapi.InvoiceListParams{})
++	require.False(t, invoices.Next())
++	require.NoError(t, invoices.Err())
++
++	invoiceItems := client.InvoiceItems().List(&stripeapi.InvoiceItemListParams{})
++	require.False(t, invoiceItems.Next())
++	require.NoError(t, invoiceItems.Err())
++
++	balanceTxs := client.CustomerBalanceTransactions().List(&stripeapi.CustomerBalanceTransactionListParams{Customer: stripeapi.String(cus.ID)})
++	require.False(t, balanceTxs.Next())
++	require.NoError(t, balanceTxs.Err())
++
++	charges := client.Charges().List(&stripeapi.ChargeListParams{})
++	require.False(t, charges.Next())
++	require.NoError(t, charges.Err())
++
++	promoCodes := client.PromoCodes().List(&stripeapi.PromotionCodeListParams{Code: stripeapi.String("promo")})
++	require.False(t, promoCodes.Next())
++	require.NoError(t, promoCodes.Err())
++
++	// nothing that would create or move money succeeds.
++	requireNull := func(_ any, err error) {
++		t.Helper()
++		require.ErrorIs(t, err, stripe.ErrNullClient)
++	}
++	requireNull(client.PaymentMethods().New(&stripeapi.PaymentMethodParams{}))
++	requireNull(client.PaymentMethods().Get("pm_1", nil))
++	requireNull(client.PaymentMethods().Update("pm_1", nil))
++	requireNull(client.PaymentMethods().Attach("pm_1", nil))
++	requireNull(client.PaymentMethods().Detach("pm_1", nil))
++	requireNull(client.PaymentIntents().New(&stripeapi.PaymentIntentParams{}))
++	requireNull(client.SetupIntents().New(&stripeapi.SetupIntentParams{}))
++	requireNull(client.Invoices().New(&stripeapi.InvoiceParams{}))
++	requireNull(client.Invoices().Get("in_1", nil))
++	requireNull(client.Invoices().Update("in_1", nil))
++	requireNull(client.Invoices().FinalizeInvoice("in_1", nil))
++	requireNull(client.Invoices().Pay("in_1", nil))
++	requireNull(client.Invoices().Del("in_1", nil))
++	requireNull(client.Invoices().MarkUncollectible("in_1", nil))
++	requireNull(client.Invoices().VoidInvoice("in_1", nil))
++	requireNull(client.InvoiceItems().New(&stripeapi.InvoiceItemParams{}))
++	requireNull(client.InvoiceItems().Update("ii_1", nil))
++	requireNull(client.InvoiceItems().Del("ii_1", nil))
++	requireNull(client.CustomerBalanceTransactions().New(&stripeapi.CustomerBalanceTransactionParams{}))
++	requireNull(client.CreditNotes().New(&stripeapi.CreditNoteParams{}))
++	requireNull(client.TaxIDs().New(&stripeapi.TaxIDParams{}))
++	requireNull(client.TaxIDs().Del("txi_1", nil))
++}
++
++// TestNullClientService checks that the payments service works on top of the null client in the
++// ways a satellite without Stripe uses it: setting up customers, the account deletion checks,
++// changing a customer's email and pricing usage.
++func TestNullClientService(t *testing.T) {
++	testplanet.Run(t, testplanet.Config{SatelliteCount: 1}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
++		sat := planet.Satellites[0]
++		db := sat.DB
++
++		pc := paymentsconfig.Config{
++			UsagePrice: paymentsconfig.ProjectUsagePrice{
++				StorageTB: "4",
++				EgressTB:  "7",
++				Segment:   "0.0000088",
++			},
++		}
++		prices, err := pc.UsagePrice.ToModel()
++		require.NoError(t, err)
++		priceOverrides, err := pc.UsagePriceOverrides.ToModels()
++		require.NoError(t, err)
++		productPrices, err := pc.Products.ToModels()
++		require.NoError(t, err)
++		minimumChargeDate, err := pc.MinimumCharge.GetEffectiveDate()
++		require.NoError(t, err)
++
++		service, err := stripe.NewService(
++			zaptest.NewLogger(t),
++			stripe.NewNullClient(),
++			stripe.ServiceDependencies{
++				DB:                   db.StripeCoinPayments(),
++				WalletsDB:            db.Wallets(),
++				BillingDB:            db.Billing(),
++				ProjectsDB:           db.Console().Projects(),
++				UsersDB:              db.Console().Users(),
++				FreezeEventsDB:       db.Console().AccountFreezeEvents(),
++				UsageDB:              db.ProjectAccounting(),
++				RetentionRemainderDB: db.RetentionRemainderCharges(),
++				Entitlements:         sat.API.Entitlements.Service,
++			},
++			stripe.ServiceConfig{
++				DeleteProjectCostThreshold: pc.DeleteProjectCostThreshold,
++				EntitlementsEnabled:        sat.Config.Entitlements.Enabled,
++			},
++			pc.StripeCoinPayments,
++			stripe.PricingConfig{
++				UsagePrices:         prices,
++				UsagePriceOverrides: priceOverrides,
++				ProductPriceMap:     productPrices,
++				PlacementProductMap: pc.PlacementPriceOverrides.ToMap(),
++				PackagePlans:        pc.PackagePlans.Packages,
++				BonusRate:           pc.BonusRate,
++				MinimumChargeAmount: pc.MinimumCharge.Amount,
++				MinimumChargeDate:   minimumChargeDate,
++			},
++		)
++		require.NoError(t, err)
++		accounts := service.Accounts()
++
++		// insert the user directly: testplanet's AddUser would set up a customer with the mock.
++		user, err := db.Console().Users().Insert(ctx, &console.User{
++			ID:           testrand.UUID(),
++			FullName:     "Null Client",
++			Email:        "null-client@example.test",
++			PasswordHash: testrand.Bytes(8),
++		})
++		require.NoError(t, err)
++
++		// a user without a customer row (billing features off never creates one) is handled as before.
++		_, err = db.StripeCoinPayments().Customers().GetCustomerID(ctx, user.ID)
++		require.ErrorIs(t, err, stripe.ErrNoCustomer)
++
++		invoices, err := accounts.Invoices().List(ctx, &user.ID)
++		require.NoError(t, err)
++		require.Empty(t, invoices)
++
++		// setting up a customer stores a null customer ID, and doing it again is a no-op.
++		_, err = accounts.Setup(ctx, user.ID, user.Email, "")
++		require.NoError(t, err)
++		cusID, err := db.StripeCoinPayments().Customers().GetCustomerID(ctx, user.ID)
++		require.NoError(t, err)
++		require.True(t, strings.HasPrefix(cusID, stripe.NullCustomerIDPrefix), cusID)
++
++		_, err = accounts.Setup(ctx, user.ID, user.Email, "some-promo-code")
++		require.NoError(t, err)
++		sameID, err := db.StripeCoinPayments().Customers().GetCustomerID(ctx, user.ID)
++		require.NoError(t, err)
++		require.Equal(t, cusID, sameID)
++
++		// the account deletion checks find nothing to block on, and removing cards succeeds.
++		invoices, err = accounts.Invoices().List(ctx, &user.ID)
++		require.NoError(t, err)
++		require.Empty(t, invoices)
++
++		pending, err := accounts.Invoices().CheckPendingItems(ctx, user.ID)
++		require.NoError(t, err)
++		require.False(t, pending)
++
++		cards, err := accounts.CreditCards().List(ctx, user.ID)
++		require.NoError(t, err)
++		require.Empty(t, cards)
++		require.NoError(t, accounts.CreditCards().RemoveAll(ctx, user.ID))
++
++		// the admin "change user email" path.
++		require.NoError(t, accounts.ChangeCustomerEmail(ctx, user.ID, cusID, "changed@example.test"))
++
++		balance, err := accounts.Balances().Get(ctx, user.ID)
++		require.NoError(t, err)
++		require.True(t, balance.Credits.IsZero())
++
++		// pricing doesn't need Stripe.
++		project, err := sat.AddProject(ctx, user.ID, "null-client")
++		require.NoError(t, err)
++		now := time.Now()
++		charges, err := accounts.ProjectProductCharges(ctx, project.ID, project.PublicID, now.Add(-time.Hour), now)
++		require.NoError(t, err)
++		require.NotNil(t, charges)
++
++		// moving money fails loudly instead of pretending it happened.
++		_, err = accounts.Balances().ApplyCredit(ctx, user.ID, 100, "credit", "")
++		require.ErrorIs(t, err, stripe.ErrNullClient)
++	})
++}
