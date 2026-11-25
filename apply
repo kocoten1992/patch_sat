@@ -104,6 +104,8 @@ apply_rule "$SCRIPT_DIR/patches/1793000000_pgutil_query_crdb_include.yml" "$DIR/
 apply_rule "$SCRIPT_DIR/patches/1786433440_migrate_test_crdb_concurrency.yml" "$DIR/satellite/satellitedb/migrate_test.go" 1
 apply_rule "$SCRIPT_DIR/patches/1786433450_metabase_stats_crdb.yml" "$DIR/satellite/metabase/stats.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433455_metabase_stats_test_crdb.yml" "$DIR/satellite/metabase/stats_test.go" 2
+# segment count must ignore partial statistics (__auto_partial__), see 1786433450
+git -C $DIR apply "$SCRIPT_DIR/patches/1794000050_metabase_stats_partial_statistics_test.patch"
 apply_rule "$SCRIPT_DIR/patches/1786433470_postgres_sha256_hex_cas.yml" "$DIR/satellite/metabase/update.go" 2
 apply_rule "$SCRIPT_DIR/patches/1786433480_pgutil_openunique_database.yml" "$DIR/shared/dbutil/pgutil/db.go" 3
 apply_rule "$SCRIPT_DIR/patches/1786433485_pgutil_openunique_test_database.yml" "$DIR/shared/dbutil/pgutil/openunique_test.go" 2

@@ -9,9 +9,16 @@ rule:
 fix: |-
   func (p *PostgresAdapter) GetTableStats(ctx context.Context, opts GetTableStats) (result TableStats, err error) {
   	defer mon.Task()(&ctx)(&err)
-  	// statistics are used when they are up to date, otherwise fall back to a count
+  	// statistics are used when they are up to date, otherwise fall back to a count.
+  	// Partial statistics (e.g. __auto_partial__) only cover rows matching their
+  	// predicate, so their row_count is not the table size and must be skipped.
   	var created time.Time
-  	err = p.db.QueryRowContext(ctx, `WITH stats AS (SHOW STATISTICS FOR TABLE segments) SELECT row_count, created FROM stats ORDER BY created DESC LIMIT 1`).
+  	err = p.db.QueryRowContext(ctx, `
+  		WITH stats AS (SHOW STATISTICS FOR TABLE segments)
+  		SELECT row_count, created FROM stats
+  		WHERE partial_predicate IS NULL
+  		ORDER BY created DESC LIMIT 1
+  	`).
   		Scan(&result.SegmentCount, &created)
   	if err != nil && !errors.Is(err, sql.ErrNoRows) {
   		return TableStats{}, err

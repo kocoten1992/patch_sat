@@ -1,0 +1,84 @@
+diff --git a/satellite/metabase/stats_partial_test.go b/satellite/metabase/stats_partial_test.go
+new file mode 100644
+index 000000000..a28784785
+--- /dev/null
++++ b/satellite/metabase/stats_partial_test.go
+@@ -0,0 +1,78 @@
++// Copyright (C) 2026 StorkSpace Labs, Inc.
++// See LICENSE for copying information.
++
++package metabase_test
++
++import (
++	"testing"
++
++	"github.com/stretchr/testify/require"
++
++	"storj.io/common/testcontext"
++	"storj.io/common/uuid"
++	"storj.io/storj/satellite/metabase"
++	"storj.io/storj/satellite/metabase/metabasetest"
++	"storj.io/storj/shared/tagsql"
++)
++
++// TestGetTableStatsIgnoresPartialStatistics checks that a newer partial
++// statistic (e.g. __auto_partial__), whose row_count only covers the rows
++// matching its predicate, is not used as the segments table size.
++func TestGetTableStatsIgnoresPartialStatistics(t *testing.T) {
++	metabasetest.Run(t, func(ctx *testcontext.Context, t *testing.T, db *metabase.DB) {
++		var rawDB tagsql.DB
++		switch adapter := db.ChooseAdapter(uuid.UUID{}).(type) {
++		case *metabase.CockroachAdapter:
++			rawDB = adapter.PostgresAdapter.UnderlyingDB()
++		case *metabase.PostgresAdapter:
++			rawDB = adapter.UnderlyingDB()
++		default:
++			t.Skip("partial statistics are CockroachDB specific")
++		}
++
++		var supportsStatistics bool
++		err := rawDB.QueryRowContext(ctx, `SELECT version() LIKE 'CockroachDB%'`).Scan(&supportsStatistics)
++		require.NoError(t, err)
++		if !supportsStatistics {
++			t.Skip("partial statistics are CockroachDB specific")
++		}
++
++		defer metabasetest.DeleteAll{}.Check(ctx, t, db)
++
++		obj := metabasetest.RandObjectStream()
++		metabasetest.CreateTestObject{}.Run(ctx, t, db, obj, 4)
++
++		_, err = rawDB.ExecContext(ctx, `CREATE STATISTICS full_stats ON stream_id FROM segments`)
++		require.NoError(t, err)
++
++		// segments with stream_ids outside of the full statistics histogram bounds
++		// end up in the partial statistics.
++		low := metabasetest.RandObjectStream()
++		low.StreamID = uuid.UUID{15: 0x01}
++		metabasetest.CreateTestObject{}.Run(ctx, t, db, low, 1)
++
++		high := metabasetest.RandObjectStream()
++		high.StreamID = uuid.UUID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
++		metabasetest.CreateTestObject{}.Run(ctx, t, db, high, 1)
++
++		_, err = rawDB.ExecContext(ctx, `CREATE STATISTICS partial_stats ON stream_id FROM segments USING EXTREMES`)
++		require.NoError(t, err)
++
++		var partialRowCount int64
++		err = rawDB.QueryRowContext(ctx, `
++			WITH stats AS (SHOW STATISTICS FOR TABLE segments)
++			SELECT row_count FROM stats
++			WHERE partial_predicate IS NOT NULL
++			ORDER BY created DESC LIMIT 1
++		`).Scan(&partialRowCount)
++		require.NoError(t, err)
++		require.EqualValues(t, 2, partialRowCount)
++
++		// the newest statistics are partial, but the count must come from the full ones.
++		metabasetest.GetTableStats{
++			Result: metabase.TableStats{
++				SegmentCount: 4,
++			},
++		}.Check(ctx, t, db)
++	})
++}
