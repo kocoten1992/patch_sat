@@ -1,0 +1,45 @@
+diff --git a/satellite/compensation/finalize.go b/satellite/compensation/finalize.go
+index 262591a62..c7bf41390 100644
+--- a/satellite/compensation/finalize.go
++++ b/satellite/compensation/finalize.go
+@@ -24,6 +24,11 @@ var mechanisms = map[string]string{
+ 	"eth":        "eth",
+ 	"ethereum":   "eth",
+ 	"zkwithdraw": "eth",
++	// StorkSpace: billd pays the 0x wallets in USDC on Stellar, to the Stellar
++	// address each operator registered, and reports those payments with the
++	// "stellar" mechanism. They pair with the wallets' L1 paystubs, so the
++	// period is prepared and finalized with --zk-sync-era-retired.
++	"stellar": "eth",
+ 	"zksync-era": zkSyncEraFeature,
+ 	"zksyncera":  zkSyncEraFeature,
+ 	"zksync_era": zkSyncEraFeature,
+diff --git a/satellite/compensation/finalize_test.go b/satellite/compensation/finalize_test.go
+index a3b538910..eed55a4e9 100644
+--- a/satellite/compensation/finalize_test.go
++++ b/satellite/compensation/finalize_test.go
+@@ -195,6 +195,16 @@ func TestFinalize(t *testing.T) {
+ 			},
+ 			distributed: map[NodeID]int64{testNode1: 1000000},
+ 		},
++		{
++			name:      "stellar is paid against the L1 paystubs (StorkSpace billd)",
++			invoices:  []Invoice{invoice(testNode1, testWallet1)},
++			ipaystubs: []IncompletePaystub{ipaystub(testNode1, 1000000)},
++			receipts:  []Receipt{receipt(testWallet1, 1000000, "stellar", "3389e9f0f1a65f19736cacf544c2e825313e8447f569233bb8db39aa607c8889")},
++			payments: []payment{
++				{nodeID: testNode1, amount: 1000000, receipt: "stellar:3389e9f0f1a65f19736cacf544c2e825313e8447f569233bb8db39aa607c8889"},
++			},
++			distributed: map[NodeID]int64{testNode1: 1000000},
++		},
+ 		{
+ 			name:      "mechanism casing and spacing are ignored",
+ 			invoices:  []Invoice{invoice(testNode1, testWallet1, "zksync-era")},
+@@ -358,6 +368,7 @@ func TestNormalizeMechanism(t *testing.T) {
+ 		{mechanism: "ETH", expected: "eth"},
+ 		{mechanism: "ethereum", expected: "eth"},
+ 		{mechanism: "zkwithdraw", expected: "eth"},
++		{mechanism: "stellar", expected: "eth"},
+ 		// A receipt still reported on zkSync Era pairs with the L1 paystubs of
+ 		// its wallet once the chain is retired; the money moved either way.
+ 		{mechanism: "zksync-era", expected: "zksync-era", retired: "eth"},
