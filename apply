@@ -143,6 +143,9 @@ git -C $DIR apply "$SCRIPT_DIR/patches/1794000000_null_stripe_client.patch"
 
 # hover logo text
 git -C $DIR apply "$SCRIPT_DIR/patches/1791921524_hover_logo_text.patch"
+# billing link to billd (/billd/) in the account menus when the console's own billing is off
+# (after the hover logo patch, which also touches AppBar.vue)
+git -C $DIR apply "$SCRIPT_DIR/patches/1794000020_billd_menu_link.patch"
 
 # jenkinsfile.public
 apply_comby_rule "$SCRIPT_DIR/patches/1786500000_jenkins_public_ci_image" "$DIR/Jenkinsfile.public" 1

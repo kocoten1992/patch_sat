@@ -1,0 +1,40 @@
+diff --git a/web/satellite/src/layouts/account/AccountNav.vue b/web/satellite/src/layouts/account/AccountNav.vue
+index cbd20bf00..fbbd6ace8 100644
+--- a/web/satellite/src/layouts/account/AccountNav.vue
++++ b/web/satellite/src/layouts/account/AccountNav.vue
+@@ -43,6 +43,14 @@
+                     </template>
+                 </navigation-item>
+ 
++                <!-- StorkSpace: billing is served by billd at /billd/ when the console's own billing is off. -->
++                <v-list-item v-if="!billingEnabled && !isMemberAccount" link lines="one" class="my-1 py-2" href="/billd/">
++                    <template #prepend>
++                        <component :is="CreditCard" :size="18" />
++                    </template>
++                    <v-list-item-title class="ml-4">Billing</v-list-item-title>
++                </v-list-item>
++
+                 <navigation-item v-if="hasPaidPrivileges && apiKeysUiEnabled" title="API Keys" :to="ROUTES.Account.with(ROUTES.APIKeys).path" class="py-2">
+                     <template #prepend>
+                         <component :is="Key" :size="18" />
+diff --git a/web/satellite/src/layouts/shared/AppBar.vue b/web/satellite/src/layouts/shared/AppBar.vue
+index 8a9389190..638351421 100644
+--- a/web/satellite/src/layouts/shared/AppBar.vue
++++ b/web/satellite/src/layouts/shared/AppBar.vue
+@@ -156,6 +156,16 @@
+                         </v-list-item-title>
+                     </v-list-item>
+ 
++                    <!-- StorkSpace: billing is served by billd at /billd/ when the console's own billing is off. -->
++                    <v-list-item v-if="!billingEnabled && !isMemberAccount" link class="my-1" href="/billd/">
++                        <template #prepend>
++                            <component :is="CreditCard" :size="18" />
++                        </template>
++                        <v-list-item-title class="text-body-medium ml-4">
++                            Billing
++                        </v-list-item-title>
++                    </v-list-item>
++
+                     <v-list-item link class="my-1" router-link :to="settingsPath" @click="closeSideNav">
+                         <template #prepend>
+                             <component :is="Settings2" :size="18" />
