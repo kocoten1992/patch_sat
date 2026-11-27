@@ -1,0 +1,45 @@
+Subject: [PATCH] cmd/storj-sim: wait for jobq to listen before its clients
+
+satellite-repairer, satellite-core and satellite-rangedloop only waited
+for the migration to exit, so storj-sim started them at the same time as
+jobq. Under -race jobq can take longer than the repairer's first Select:
+the dial to the jobq address is refused, repairer.go returns the error
+from processWhileQueueHasItems, the process exits 1 and --failfast
+cancels the whole network ("network canceled: satellite-repairer/0
+failed: exit status 1", Jenkins test_stork_patched #233, Postgres
+branch).
+
+jobq has an Address, so its Started fence is only released once the
+port accepts connections; wait on it.
+
+Temporary: drop once upstream storj-sim orders these processes itself.
+---
+diff --git a/cmd/storj-sim/network.go b/cmd/storj-sim/network.go
+index 475009241..b051d0399 100644
+--- a/cmd/storj-sim/network.go
++++ b/cmd/storj-sim/network.go
+@@ -571,6 +571,7 @@ func newNetwork(flags *Flags) (*Processes, error) {
+ 			coreProcess.ExecBefore["run"] = jobqArg
+ 		}
+ 		coreProcess.WaitForExited(migrationProcess)
++		coreProcess.WaitForStart(jobqProcess)
+ 
+ 		rangedLoopProcess := processes.New(Info{
+ 			Name:       fmt.Sprintf("satellite-rangedloop/%d", i),
+@@ -584,6 +585,7 @@ func newNetwork(flags *Flags) (*Processes, error) {
+ 			rangedLoopProcess.ExecBefore["run"] = jobqArg
+ 		}
+ 		rangedLoopProcess.WaitForExited(migrationProcess)
++		rangedLoopProcess.WaitForStart(jobqProcess)
+ 
+ 		adminProcess := processes.New(Info{
+ 			Name:       fmt.Sprintf("satellite-admin/%d", i),
+@@ -608,6 +610,8 @@ func newNetwork(flags *Flags) (*Processes, error) {
+ 			repairProcess.ExecBefore["run"] = jobqArg
+ 		}
+ 		repairProcess.WaitForExited(migrationProcess)
++		// jobq must be listening, the repairer exits on its first failed dial
++		repairProcess.WaitForStart(jobqProcess)
+ 
+ 		garbageCollectionProcess := processes.New(Info{
+ 			Name:       fmt.Sprintf("satellite-garbage-collection/%d", i),
