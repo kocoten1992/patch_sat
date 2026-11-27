@@ -16,13 +16,13 @@ index deba215..58158a5 100644
 --- a/satellite/console/config.go
 +++ b/satellite/console/config.go
 @@ -615,6 +615,7 @@ type WhiteLabelConfig struct {
- 	HostName            string            `yaml:"host-name,omitempty"`
- 	ExternalAddress     string            `yaml:"external-address,omitempty"`
- 	Name                string            `yaml:"name,omitempty"`
-+	LogoHoverText       string            `yaml:"logo-hover-text,omitempty"`
- 	LogoURLs            map[string]string `yaml:"logo-urls,omitempty"`
- 	FaviconURLs         map[string]string `yaml:"favicon-urls,omitempty"`
- 	Colors              map[string]string `yaml:"colors,omitempty"`
+ 	HostName            string            `yaml:"host-name,omitempty" json:"host-name,omitempty"`
+ 	ExternalAddress     string            `yaml:"external-address,omitempty" json:"external-address,omitempty"`
+ 	Name                string            `yaml:"name,omitempty" json:"name,omitempty"`
++	LogoHoverText       string            `yaml:"logo-hover-text,omitempty" json:"logo-hover-text,omitempty"`
+ 	LogoURLs            map[string]string `yaml:"logo-urls,omitempty" json:"logo-urls,omitempty"`
+ 	FaviconURLs         map[string]string `yaml:"favicon-urls,omitempty" json:"favicon-urls,omitempty"`
+ 	Colors              map[string]string `yaml:"colors,omitempty" json:"colors,omitempty"`
 diff --git a/satellite/console/consoleweb/config.go b/satellite/console/consoleweb/config.go
 index 847e0a9..4a037e0 100644
 --- a/satellite/console/consoleweb/config.go
