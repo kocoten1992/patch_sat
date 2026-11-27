@@ -8,7 +8,7 @@ rule:
     		return nil
     	}
 
-    	if user.EmailChangeVerificationStep < VerifyAccountPasswordStep {
+    	if s.accountActionStep(user) < VerifyAccountPasswordStep {
     		err = s.handleLockAccount(ctx, user, VerifyAccountMfaStep, action)
     		if err != nil {
     			return err
@@ -76,7 +76,7 @@ fix: |-
   		return nil
   	}
 
-  	if user.EmailChangeVerificationStep < VerifyAccountPasswordStep {
+  	if s.accountActionStep(user) < VerifyAccountPasswordStep {
   		err = s.handleLockAccount(ctx, user, VerifyAccountMfaStep, action)
   		if err != nil {
   			return err
